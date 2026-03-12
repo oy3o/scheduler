@@ -1,0 +1,205 @@
+package scheduler
+
+import (
+	"context"
+	"fmt"
+	"runtime/debug"
+	"sync"
+	"sync/atomic"
+)
+
+// Void represents an empty value for tasks that don't return anything.
+// It uses zero memory and makes generic signatures cleaner.
+type Void struct{}
+
+// Future is a lightweight handle for an asynchronous task's result.
+//
+// Philosophy (Bridging the Void): It bridges the strict, low-level Gatekeeper scheduling
+// model with a developer-friendly closure API. It is the temporal crystallization of a
+// promise—that a computed value (or an isolated failure) will eventually materialize,
+// allowing linear-style coordination across highly concurrent, non-linear work boundaries.
+type Future[T any] struct {
+	val       atomic.Value // Holds the result value of type T
+	err       atomic.Value // Holds the execution error, if any
+	done      chan struct{}
+	closeOnce sync.Once
+	aborter   func() // Link to closureTask.Abort for fail-fast cleanup in Join
+}
+
+func (f *Future[T]) closeDone() {
+	f.closeOnce.Do(func() { close(f.done) })
+}
+
+// Get blocks until the task completes or the provided context is cancelled.
+//
+// WARNING (Zombie Leak Contract):
+// Cancelling the context passed to Get() ONLY unblocks this call.
+// It DOES NOT cancel the execution of the task within the Gatekeeper.
+// The underlying closureTask will continue running and consuming a slot
+// until it completes or the Gatekeeper itself shuts down.
+//
+// To implement true cooperative cancellation, your task closure must
+// explicitly check ctx.Err() or use select on ctx.Done() internally.
+//
+// If the Gatekeeper shuts down while this task is still queued, the task
+// will be dropped without execution. Always pass a context with a timeout
+// as an escape hatch to prevent goroutine leaks in the caller.
+func (f *Future[T]) Get(ctx context.Context) (T, error) {
+	select {
+	case <-ctx.Done():
+		var zero T
+		return zero, ctx.Err()
+	case <-f.done:
+		rawErr := f.err.Load()
+		if rawErr != nil {
+			var zero T
+			return zero, rawErr.(error)
+		}
+		rawVal := f.val.Load()
+		if rawVal == nil {
+			var zero T
+			return zero, nil
+		}
+		return rawVal.(T), nil
+	}
+}
+
+// closureTask is the internal bridge that implements the Task interface
+// while holding the user's generic closure and future pointer.
+type closureTask[T any] struct {
+	priority int
+	fn       func(ctx Context) (T, error)
+	future   *Future[T]
+}
+
+func (c *closureTask[T]) Priority() int {
+	return c.priority
+}
+
+func (c *closureTask[T]) Abort() {
+	c.future.err.CompareAndSwap(nil, ErrGateClosed)
+	c.future.closeDone()
+}
+
+// Execute is called by the Gatekeeper. It injects panic recovery to ensure
+// the Future always resolves, even if the user's logic explodes.
+func (c *closureTask[T]) Execute(ctx Context) (err error) {
+	// Guarantee the future is unblocked upon exit.
+	defer func() {
+		c.future.closeDone()
+	}()
+
+	// Panic isolation boundary (Bloody Sincerity):
+	// We do not silently swallow panics, nor do we let a single reckless user task
+	// crash the critical infrastructure of the gatekeeper host. We catch it,
+	// wrap it as a hard error containing the stack trace, and return it.
+	// Gatekeeper's dispatch loop will observe this and forcefully route 
+	// it to the system-level Config.OnError hook for downstream alerting.
+	defer func() {
+		if p := recover(); p != nil {
+			panicErr := fmt.Errorf("task panicked: %v\n%s", p, debug.Stack())
+			c.future.err.CompareAndSwap(nil, panicErr)
+			err = panicErr // Let the Gatekeeper bleed. Do not swallow.
+		}
+	}()
+
+	res, resErr := c.fn(ctx)
+	if resErr != nil {
+		c.future.err.CompareAndSwap(nil, resErr)
+	} else {
+		c.future.val.Store(res)
+	}
+	return nil
+}
+
+// SubmitFunc wraps a generic function into a Task and submits it to the Gatekeeper.
+// It returns a Future that can be awaited, eliminating the need to define custom Task structs.
+//
+// WARNING (Zombie Leak Contract):
+// The Context passed to Future.Get() only controls the caller's blocking.
+// It does NOT propagate cancellation into the submitted closure.
+// Your fn must cooperatively check the Gatekeeper's Context (the ctx argument)
+// for cancellation. See Future.Get documentation for details.
+func SubmitFunc[T any](g *Gatekeeper, priority int, fn func(ctx Context) (T, error)) (*Future[T], error) {
+	f := &Future[T]{
+		done: make(chan struct{}),
+	}
+	task := &closureTask[T]{
+		priority: priority,
+		fn:       fn,
+		future:   f,
+	}
+
+	f.aborter = task.Abort
+	if err := g.Submit(task); err != nil {
+		return nil, err
+	}
+	return f, nil
+}
+
+// SubmitVoid is a syntactic sugar for submitting tasks that do not return a value.
+func SubmitVoid(g *Gatekeeper, priority int, fn func(ctx Context) error) (*Future[Void], error) {
+	return SubmitFunc(g, priority, func(ctx Context) (Void, error) {
+		return Void{}, fn(ctx)
+	})
+}
+
+// Join acts as a concurrency synchronization barrier (The Architect's Convergence).
+// It waits for a variadic slice of Futures to complete and returns their collective results.
+//
+// Philosophy (Fail Fast): If ANY Future in the set fails or panics, Join instantly aborts
+// and bubbles the error up. It refuses to wait for the rest if the overarching premise
+// is already compromised. Structural integrity precedes completion.
+func Join[T any](ctx context.Context, futures ...*Future[T]) ([]T, error) {
+	if len(futures) == 0 {
+		return nil, nil
+	}
+
+	// Create an internal cancellation boundary.
+	// This ensures that if Join fails fast, we automatically unblock
+	// all internal goroutines waiting on fut.Get(), preventing leaks
+	// even if the user forgets to cancel the parent ctx.
+	joinCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	results := make([]T, len(futures))
+	errCh := make(chan error, len(futures))
+
+	// Launch parallel collection:
+	for i, f := range futures {
+		go func(idx int, fut *Future[T]) {
+			val, err := fut.Get(joinCtx)
+			if err != nil {
+				select {
+				case errCh <- err:
+				default:
+				}
+				return
+			}
+			// Check context before writing to silence race detector if Join returns early
+			select {
+			case <-joinCtx.Done():
+				return
+			default:
+				results[idx] = val
+				errCh <- nil
+			}
+		}(i, f)
+	}
+
+	// Wait and Fail-Fast:
+	for range futures {
+		if err := <-errCh; err != nil {
+			// Fail Fast cleanup: Abort all other tasks in the join set
+			// to reclaim scheduler slots and prevent closure memory leaks.
+			for _, fut := range futures {
+				if fut.aborter != nil {
+					fut.aborter()
+				}
+			}
+			return nil, err
+		}
+	}
+
+	return results, nil
+}
