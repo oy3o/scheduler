@@ -1,0 +1,4 @@
+## 2025-02-23 - Prevent Stack Trace Leakage in Panic Recovery
+**Vulnerability:** The scheduler's `future.go` was previously returning `debug.Stack()` directly to the caller via the public `Future.Get()` API by wrapping it in the stored error object.
+**Learning:** Security fixes must not break system observability. Stripping stack traces from internal errors passed to telemetry/alerting systems (like `OnError`) creates "security theater" by making the application harder to debug. A robust fix must separate public and internal error boundaries.
+**Prevention:** When recovering from panics in a library, create a sanitized `publicErr` (without stack traces) to return to the external caller, and a detailed `internalErr` (with stack traces) to route to internal logging/alerting systems. Do not hardcode `os.Stderr` logging inside a reusable library.
