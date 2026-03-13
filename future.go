@@ -93,12 +93,13 @@ func (c *closureTask[T]) Execute(ctx Context) (err error) {
 	// We do not silently swallow panics, nor do we let a single reckless user task
 	// crash the critical infrastructure of the gatekeeper host. We catch it,
 	// wrap it as a hard error containing the stack trace, and return it.
-	// Gatekeeper's dispatch loop will observe this and forcefully route 
+	// Gatekeeper's dispatch loop will observe this and forcefully route
 	// it to the system-level Config.OnError hook for downstream alerting.
 	defer func() {
 		if p := recover(); p != nil {
 			panicErr := fmt.Errorf("task panicked: %v\n%s", p, debug.Stack())
-			c.future.err.CompareAndSwap(nil, panicErr)
+			sanitizedErr := fmt.Errorf("task panicked during execution")
+			c.future.err.CompareAndSwap(nil, sanitizedErr)
 			err = panicErr // Let the Gatekeeper bleed. Do not swallow.
 		}
 	}()

@@ -75,8 +75,8 @@ func TestFuture_PanicIsolation(t *testing.T) {
 	if getErr == nil {
 		t.Fatal("Expected an error from panicked task, got nil")
 	}
-	if !strings.Contains(getErr.Error(), "bloody sincerity") {
-		t.Errorf("Expected error to contain panic payload, got: %v", getErr)
+	if !strings.Contains(getErr.Error(), "task panicked during execution") {
+		t.Errorf("Expected sanitized error message, got: %v", getErr)
 	}
 }
 
