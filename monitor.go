@@ -3,7 +3,6 @@ package scheduler
 import (
 	"context"
 	"fmt"
-	"sort"
 	"time"
 )
 
@@ -54,7 +53,7 @@ func (g *Gatekeeper) monitorLatency(ctx context.Context) {
 				continue
 			}
 
-			// ticks = 0  // [Architectural Note]: We no longer instantly reset to 0
+			// We no longer instantly reset to 0
 			// to prevent high-frequency jitter from hiding persistent boundary saturation.
 			if ticks > 0 {
 				ticks--
@@ -114,27 +113,84 @@ func (g *Gatekeeper) detectSaturation(ticks *int, active, limit float64, samples
 	return false
 }
 
+// sortedPercentileMut finds the p-th percentile of data mutating the array.
+// Replaced sort.Float64s (O(N log N)) with QuickSelect (O(N) expected time)
+// which dramatically reduces CPU block time in the monitor loop when N > 1000.
 func sortedPercentileMut(data []float64, p float64) float64 {
 	if len(data) == 0 {
 		return 0
 	}
 
-	sort.Float64s(data)
-
 	if p >= 1.0 {
-		return data[len(data)-1]
+		max := data[0]
+		for _, v := range data[1:] {
+			if v > max {
+				max = v
+			}
+		}
+		return max
 	}
 	if p <= 0.0 {
-		return data[0]
+		min := data[0]
+		for _, v := range data[1:] {
+			if v < min {
+				min = v
+			}
+		}
+		return min
 	}
 
 	idx := float64(len(data)-1) * p
 	lo := int(idx)
 	hi := lo + 1
+
 	if hi >= len(data) {
-		return data[lo]
+		return quickSelect(data, lo)
+	}
+
+	vLo := quickSelect(data, lo)
+
+	// vHi is the minimum of elements AFTER lo
+	vHi := data[lo+1]
+	for i := lo + 2; i < len(data); i++ {
+		if data[i] < vHi {
+			vHi = data[i]
+		}
 	}
 
 	frac := idx - float64(lo)
-	return data[lo] + frac*(data[hi]-data[lo])
+	return vLo + frac*(vHi-vLo)
+}
+
+func quickSelect(a []float64, k int) float64 {
+	left, right := 0, len(a)-1
+	for {
+		if left == right {
+			return a[left]
+		}
+		// A simple middle element pivot to avoid Rand overhead in tight loop
+		pivotIndex := left + (right-left)/2
+		pivotIndex = partition(a, left, right, pivotIndex)
+		if k == pivotIndex {
+			return a[k]
+		} else if k < pivotIndex {
+			right = pivotIndex - 1
+		} else {
+			left = pivotIndex + 1
+		}
+	}
+}
+
+func partition(a []float64, left, right, pivotIndex int) int {
+	pivotValue := a[pivotIndex]
+	a[pivotIndex], a[right] = a[right], a[pivotIndex] // Move pivot to end
+	storeIndex := left
+	for i := left; i < right; i++ {
+		if a[i] < pivotValue {
+			a[storeIndex], a[i] = a[i], a[storeIndex]
+			storeIndex++
+		}
+	}
+	a[right], a[storeIndex] = a[storeIndex], a[right] // Move pivot to its final place
+	return storeIndex
 }
