@@ -537,6 +537,28 @@ func (g *Gatekeeper) drainHeap() {
 func (g *Gatekeeper) watchdogScan(ctx context.Context) {
 	ticker := time.NewTicker(250 * time.Millisecond) // Increase frequency to catch tasks needing penalty
 	defer ticker.Stop()
+
+	// [Architectural Note]: shardedMap.Range is not globally atomic. An entry could
+	// be deleted from its shard during the iteration traversal if the task finishes.
+	// This means the watchdog might observe a stale *taskState whose version has
+	// expired. This is perfectly safe: the setZombied() operation is guarded by
+	// a strict version/ABA check that acts as a secondary defense, ensuring we
+	// never penalize or zombie a recycled slot.
+	// P99 Tail Latency Assassination Fix:
+	// Do NOT perform complex, time-consuming penalty calculations or log formations
+	// inside the Range loop, as that holds the shardedMap.RLock, which blocks
+	// ALL rapid task completions (Delete calls) on that shard, creating P99 spikes.
+	// Instead, extract references to active tasks and process them lock-free.
+
+	// Pre-allocate the action items buffer outside the loop to prevent O(N) heap allocations
+	// per tick during overload, reducing GC pressure.
+	type actionItem struct {
+		state   *taskState
+		version uint32
+		elapsed int64
+	}
+	items := make([]actionItem, 0, 128)
+
 	for {
 		select {
 		case <-ctx.Done():
@@ -544,26 +566,10 @@ func (g *Gatekeeper) watchdogScan(ctx context.Context) {
 		case <-ticker.C:
 			now := NowNano()
 
-			// [Architectural Note]: shardedMap.Range is not globally atomic. An entry could
-			// be deleted from its shard during the iteration traversal if the task finishes.
-			// This means the watchdog might observe a stale *taskState whose version has
-			// expired. This is perfectly safe: the setZombied() operation is guarded by
-			// a strict version/ABA check that acts as a secondary defense, ensuring we
-			// never penalize or zombie a recycled slot.
-			// P99 Tail Latency Assassination Fix:
-			// Do NOT perform complex, time-consuming penalty calculations or log formations
-			// inside the Range loop, as that holds the shardedMap.RLock, which blocks
-			// ALL rapid task completions (Delete calls) on that shard, creating P99 spikes.
-			// Instead, extract references to active tasks and process them lock-free.
-
-			// We pre-allocate a slice that shouldn't escape to heap often if sized appropriately
-			// by using bounded collection to avoid allocating huge arrays during overload.
-			type actionItem struct {
-				state   *taskState
-				version uint32
-				elapsed int64
-			}
-			var items []actionItem
+			// clear() zeros out the underlying array to prevent retained pointers
+			// from holding old *taskState objects in memory longer than necessary.
+			clear(items)
+			items = items[:0]
 			timeout := g.config.ZombieTimeout.Nanoseconds()
 
 			g.inflightTasks.Range(func(key *entry, value *taskState) bool {
