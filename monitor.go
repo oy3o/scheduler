@@ -12,6 +12,9 @@ func (g *Gatekeeper) monitorLatency(ctx context.Context) {
 	ticker := time.NewTicker(100 * time.Millisecond)
 	defer ticker.Stop()
 
+	// Pre-allocate the samples buffer to prevent O(N) heap allocations
+	// (32KB per tick under load) on the critical background monitoring path.
+	samplesBuffer := make([]float64, 0, maxLatencySamples)
 	ticks := 0
 	for {
 		select {
@@ -24,23 +27,20 @@ func (g *Gatekeeper) monitorLatency(ctx context.Context) {
 			currentLimit := float64(g.aimd.Limit())
 			canaryDelayNano := float64(g.canaryLatency.Swap(0))
 
+			samplesBuffer = samplesBuffer[:0]
 			// Snapshot and extract samples from all shards
-			var samples []float64
 			for i := 0; i < numShards; i++ {
 				shard := &g.latencyShards[i]
 				shard.mu.Lock()
 				if shard.count > 0 {
-					if samples == nil {
-						samples = make([]float64, 0, maxLatencySamples)
-					}
 					// Extract all valid samples from this shard in precise chronological order
 					if shard.count < len(shard.samples) {
 						// Buffer not yet wrapped
-						samples = append(samples, shard.samples[:shard.count]...)
+						samplesBuffer = append(samplesBuffer, shard.samples[:shard.count]...)
 					} else {
 						// Buffer wrapped: extract oldest samples first [index:] then newest [:index]
-						samples = append(samples, shard.samples[shard.index:]...)
-						samples = append(samples, shard.samples[:shard.index]...)
+						samplesBuffer = append(samplesBuffer, shard.samples[shard.index:]...)
+						samplesBuffer = append(samplesBuffer, shard.samples[:shard.index]...)
 					}
 					// Reset shard state
 					shard.count = 0
@@ -50,7 +50,7 @@ func (g *Gatekeeper) monitorLatency(ctx context.Context) {
 			}
 
 			// Silent Saturation Detection (Survivorship Bias):
-			if g.detectSaturation(&ticks, currentActive, currentLimit, samples) {
+			if g.detectSaturation(&ticks, currentActive, currentLimit, samplesBuffer) {
 				continue
 			}
 
@@ -59,16 +59,16 @@ func (g *Gatekeeper) monitorLatency(ctx context.Context) {
 			if ticks > 0 {
 				ticks--
 			}
-			if len(samples) == 0 {
+			if len(samplesBuffer) == 0 {
 				continue
 			}
 
 			// Require a minimum sample count to avoid noisy percentiles.
-			if len(samples) < g.config.MinAIMDSamples {
+			if len(samplesBuffer) < g.config.MinAIMDSamples {
 				continue
 			}
 
-			p99 := sortedPercentileMut(samples, 0.99)
+			p99 := sortedPercentileMut(samplesBuffer, 0.99)
 
 			// If the Canary screams, we MUST enforce contraction regardless of
 			// current active utilization. This pre-shrinks the limit as a shield
