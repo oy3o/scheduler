@@ -3,7 +3,6 @@ package scheduler
 import (
 	"context"
 	"fmt"
-	"os"
 	"runtime"
 	"runtime/debug"
 	"sync"
@@ -646,11 +645,8 @@ func (g *Gatekeeper) safeOnError(task Task, err error) {
 		case <-done:
 			<-g.errorSem
 		case <-timer.C:
-			priority := -1
-			if task != nil {
-				priority = task.Priority()
-			}
-			fmt.Fprintf(os.Stderr, "gatekeeper: OnError callback timed out (%v) for task with priority %d\n", g.config.CallbackTimeout, priority)
+			// Security: Removed hardcoded os.Stderr logging to prevent
+			// potential sensitive information exposure from library code.
 			<-g.errorSem
 		}
 	}()
