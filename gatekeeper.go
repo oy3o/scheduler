@@ -49,8 +49,8 @@ type Gatekeeper struct {
 	errorDropped atomic.Int64
 	zombieCount  atomic.Int64
 
-	latencyShards       [numShards]latencyShard
-	latencyShardCursor  atomic.Uint64
+	latencyShards      [numShards]latencyShard
+	latencyShardCursor atomic.Uint64
 
 	rootCtx atomic.Value // Stores the context.Context from Start()
 
@@ -58,7 +58,9 @@ type Gatekeeper struct {
 	bgWg          sync.WaitGroup
 	inflightTasks *shardedMap
 
-	_ [cacheLineSize]byte
+	_             [cacheLineSize]byte
+	canaryLatency atomic.Int64 // HOT: Read by Monitor, Written by Canary
+	_             [cacheLineSize - 8]byte
 }
 
 type shardedMap struct {
@@ -154,7 +156,7 @@ func New(cfg Config) *Gatekeeper {
 	}
 
 	g := &Gatekeeper{
-		heap:      newEnergyHeap(),
+		heap: newEnergyHeap(),
 		aimd: NewAIMD(
 			cfg.AIMDAlpha, cfg.AIMDBeta, float64(cfg.TargetLatency.Nanoseconds()),
 			float64(cfg.InitialLimit), float64(cfg.MinConcurrency), float64(cfg.MaxConcurrency),
@@ -236,7 +238,7 @@ func (g *Gatekeeper) Start(ctx context.Context) error {
 		return fmt.Errorf("gatekeeper: Start() called more than once")
 	}
 	defer close(g.doneCh)
-	g.bgWg.Add(3)
+	g.bgWg.Add(4)
 	go func() {
 		defer g.bgWg.Done()
 		defer func() {
@@ -277,6 +279,21 @@ func (g *Gatekeeper) Start(ctx context.Context) error {
 		g.watchdogScan(ctx)
 	}()
 
+	// Launch the Canary
+	go func() {
+		defer g.bgWg.Done()
+		defer func() {
+			if r := recover(); r != nil {
+				if g.config.OnPanic != nil {
+					g.config.OnPanic(nil, r)
+				} else {
+					panic(r)
+				}
+			}
+		}()
+		g.runCanary(ctx)
+	}()
+
 	for {
 		if ctx.Err() != nil {
 			g.closed.Store(true)
@@ -286,9 +303,9 @@ func (g *Gatekeeper) Start(ctx context.Context) error {
 			go func() {
 				defer waitCancel()
 				// [Architectural Note]: Replaced sync.Cond with a backoff spin-wait.
-				// sync.Cond.Wait() does not respect Context cancellation. If the system 
-				// is in a true livelock when DeathRattleTimeout fires, sync.Cond.Wait() 
-				// will block forever, leaking this anonymous goroutine. 
+				// sync.Cond.Wait() does not respect Context cancellation. If the system
+				// is in a true livelock when DeathRattleTimeout fires, sync.Cond.Wait()
+				// will block forever, leaking this anonymous goroutine.
 				// This loop guarantees bounded exit.
 				for g.inflightCount.Load() > 0 {
 					select {
@@ -409,7 +426,7 @@ func (g *Gatekeeper) runTask(baseCtx context.Context, e *entry, isFastPath bool)
 			}
 		}
 
-		if (flags & flagZombied) == 0 && (flags & flagInSyscall) == 0 {
+		if (flags&flagZombied) == 0 && (flags&flagInSyscall) == 0 {
 			g.releaseSlot()
 		}
 
@@ -485,7 +502,7 @@ func (g *Gatekeeper) drainHeap() {
 	drainOps := func(e *entry) {
 		if e.state.CompareAndSwap(stateQueued, stateDead) {
 			g.queued.Add(-1)
-			
+
 			// Detect and trigger Abort() for tasks that need it (e.g., Futures)
 			if aborter, ok := e.task.(interface{ Abort() }); ok {
 				aborter.Abort()
@@ -538,7 +555,7 @@ func (g *Gatekeeper) watchdogScan(ctx context.Context) {
 			// inside the Range loop, as that holds the shardedMap.RLock, which blocks
 			// ALL rapid task completions (Delete calls) on that shard, creating P99 spikes.
 			// Instead, extract references to active tasks and process them lock-free.
-			
+
 			// We pre-allocate a slice that shouldn't escape to heap often if sized appropriately
 			// by using bounded collection to avoid allocating huge arrays during overload.
 			type actionItem struct {
@@ -555,7 +572,7 @@ func (g *Gatekeeper) watchdogScan(ctx context.Context) {
 				version := uint32(data >> 32)
 				flags := uint32(data)
 
-				if (flags & flagValid) != 0 && (flags & flagZombied) == 0 && (flags & flagInSyscall) == 0 {
+				if (flags&flagValid) != 0 && (flags&flagZombied) == 0 && (flags&flagInSyscall) == 0 {
 					elapsed := now - s.dispatchedAt.Load()
 					if elapsed > timeout/3 {
 						items = append(items, actionItem{state: s, version: version, elapsed: elapsed})
@@ -584,7 +601,7 @@ func (g *Gatekeeper) watchdogScan(ctx context.Context) {
 					tickDeltaNano := float64(250 * time.Millisecond.Nanoseconds())
 					severity := float64(item.elapsed-(timeout/3)) / float64(timeout) // > 0
 					incrementalPenalty := tickDeltaNano * severity * PenaltyGamma
-					
+
 					// INJECT INTO STATE, NOT ENTRY. Safe against concurrent recycle!
 					// Verify version hasn't changed before injecting
 					currentData := s.stateData.Load()

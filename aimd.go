@@ -15,13 +15,13 @@ import (
 // while a queue of 10 cryptographic hashing tasks means total deadlock. Temporal latency is the
 // objective reality of system saturation. AIMD breathes in response to this truth.
 type AIMD struct {
-	mu           sync.Mutex
-	atomicLimit  atomic.Int64
-	alpha        float64
-	beta         float64
-	limit        float64
-	floor        float64
-	ceil         float64
+	mu               sync.Mutex
+	atomicLimit      atomic.Int64
+	alpha            float64
+	beta             float64
+	limit            float64
+	floor            float64
+	ceil             float64
 	target           float64 // target latency in nanoseconds (immutable after construction)
 	lastDecreaseNano atomic.Int64
 }
@@ -90,11 +90,11 @@ func (a *AIMD) Decrease(latencyNano float64) {
 	defer a.mu.Unlock()
 
 	// Cooldown prevents a single delayed metric scrape from triggering
-	// cascading cuts. 
+	// cascading cuts.
 	// [Architectural Note]: The cooldown MUST be larger than the observed P99 tail latency.
-	// In cloud environments, STW (Stop-The-World) GC pauses or network jitter can create 
-	// 200ms+ latency spikes. If the cooldown relies only on the Target Latency (e.g. 5ms), 
-	// a single 200ms pause would allow AIMD to sample and slash the limit 10+ times 
+	// In cloud environments, STW (Stop-The-World) GC pauses or network jitter can create
+	// 200ms+ latency spikes. If the cooldown relies only on the Target Latency (e.g. 5ms),
+	// a single 200ms pause would allow AIMD to sample and slash the limit 10+ times
 	// before the system unfreezes, causing an AIMD "Death Spiral".
 	now := NowNano()
 	baseCooldown := int64(time.Millisecond * 100)
@@ -102,14 +102,14 @@ func (a *AIMD) Decrease(latencyNano float64) {
 	if jitterProtection < int64(a.target*4.0) {
 		jitterProtection = int64(a.target * 4.0)
 	}
-	
+
 	cooldown := baseCooldown + jitterProtection
 	if now-a.lastDecreaseNano.Load() < cooldown {
 		return
 	}
 	a.lastDecreaseNano.Store(now)
 
-	ratio := latencyNano / a.target
+	ratio := latencyNano / float64(a.target)
 	effectiveBeta := a.beta
 	if ratio > 1.0 {
 		effectiveBeta = a.beta / ratio
@@ -132,6 +132,47 @@ func (a *AIMD) Observe(latencyNano float64) {
 	} else {
 		a.Increase()
 	}
+}
+
+// ObserveWithCanary replaces the naive Observe.
+func (a *AIMD) ObserveWithCanary(taskP99Nano, canaryDelayNano float64) {
+	// 1. The Ultimate Barrier: Is the local CPU/Scheduler choking?
+	if canaryDelayNano > CanaryToleranceNano {
+		// Brutal Contraction: CPU is dying. Add the Canary delay to penalize proportionally.
+		effectiveLatency := a.target + canaryDelayNano
+		a.Decrease(effectiveLatency)
+		return
+	}
+
+	// 2. CPU is healthy, but are tasks exceeding target latency?
+	if taskP99Nano > a.target {
+		// [Architectural Note]: STEALTH I/O DETECTED. Downstream is drowning.
+		// "Hold" is mathematically fatal here. We execute a "Gentle Decay"
+		// to relieve pressure on downstream locks/networks, preventing a death spiral.
+		a.gentleDecay()
+		return
+	}
+
+	// 3. Clean logic: CPU healthy AND Tasks are meeting SLAs.
+	a.Increase()
+}
+
+// gentleDecay applies a soft backoff for I/O saturation.
+func (a *AIMD) gentleDecay() {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
+	now := NowNano()
+	if now-a.lastDecreaseNano.Load() < int64(time.Millisecond*100) {
+		return // Standard cooldown
+	}
+	a.lastDecreaseNano.Store(now)
+
+	a.limit *= 0.95 // 5% gentle backoff (vs the harsh ratio drop in Decrease)
+	if a.limit < a.floor {
+		a.limit = a.floor
+	}
+	a.atomicLimit.Store(int64(a.limit))
 }
 
 // Limit returns the current concurrency ceiling lock-free.

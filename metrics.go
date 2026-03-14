@@ -11,6 +11,7 @@ type Metrics struct {
 	Zombies         int
 	RecentCreations int
 	DroppedErrCount int
+	CanaryDelayNano int64
 }
 
 // Metrics returns a point-in-time snapshot of the Gatekeeper's internal state.
@@ -22,5 +23,6 @@ func (g *Gatekeeper) Metrics() Metrics {
 		Zombies:         int(g.zombieCount.Load()),
 		RecentCreations: int(g.recentCreations.Load()),
 		DroppedErrCount: int(g.errorDropped.Load()),
+		CanaryDelayNano: g.canaryLatency.Load(),
 	}
 }

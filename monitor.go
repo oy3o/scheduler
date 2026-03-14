@@ -22,6 +22,7 @@ func (g *Gatekeeper) monitorLatency(ctx context.Context) {
 			// reflects the state that produced the samples, not a later one.
 			currentActive := float64(g.active.Load())
 			currentLimit := float64(g.aimd.Limit())
+			canaryDelayNano := float64(g.canaryLatency.Swap(0))
 
 			// Snapshot and extract samples from all shards
 			var samples []float64
@@ -69,9 +70,13 @@ func (g *Gatekeeper) monitorLatency(ctx context.Context) {
 
 			p99 := sortedPercentileMut(samples, 0.99)
 
-			// Only adjust capacity when the pipeline is genuinely saturated.
-			if currentActive >= currentLimit*0.8 {
-				g.aimd.Observe(p99)
+			// If the Canary screams, we MUST enforce contraction regardless of
+			// current active utilization. This pre-shrinks the limit as a shield
+			// against incoming burst traffic hitting a saturated physical host.
+			if canaryDelayNano > CanaryToleranceNano {
+				g.aimd.ObserveWithCanary(p99, canaryDelayNano)
+			} else if currentActive >= currentLimit*0.8 {
+				g.aimd.ObserveWithCanary(p99, canaryDelayNano)
 			}
 			g.signal()
 		}
@@ -89,8 +94,11 @@ func (g *Gatekeeper) detectSaturation(ticks *int, active, limit float64, samples
 
 		// AIMD contraction every 5 ticks (~500ms).
 		if *ticks%5 == 0 {
+			// If throughput is ZERO, the system is deadlocked or entirely frozen.
+			// We MUST force a contraction. Do not use ObserveWithCanary here,
+			// invoke Decrease directly.
 			syntheticLatency := float64(g.config.TargetLatency.Nanoseconds()) * 2.0
-			g.aimd.Observe(syntheticLatency)
+			g.aimd.Decrease(syntheticLatency)
 			g.signal()
 		}
 
