@@ -537,6 +537,18 @@ func (g *Gatekeeper) drainHeap() {
 func (g *Gatekeeper) watchdogScan(ctx context.Context) {
 	ticker := time.NewTicker(250 * time.Millisecond) // Increase frequency to catch tasks needing penalty
 	defer ticker.Stop()
+
+	// We pre-allocate a slice that shouldn't escape to heap often if sized appropriately
+	// by using bounded collection to avoid allocating huge arrays during overload.
+	type actionItem struct {
+		state   *taskState
+		version uint32
+		elapsed int64
+	}
+	// Bolt: Pre-allocate the action items buffer outside the hot periodic loop
+	// and reuse it to eliminate O(N) heap allocations and GC pressure every 250ms.
+	items := make([]actionItem, 0, 128)
+
 	for {
 		select {
 		case <-ctx.Done():
@@ -556,14 +568,9 @@ func (g *Gatekeeper) watchdogScan(ctx context.Context) {
 			// ALL rapid task completions (Delete calls) on that shard, creating P99 spikes.
 			// Instead, extract references to active tasks and process them lock-free.
 
-			// We pre-allocate a slice that shouldn't escape to heap often if sized appropriately
-			// by using bounded collection to avoid allocating huge arrays during overload.
-			type actionItem struct {
-				state   *taskState
-				version uint32
-				elapsed int64
-			}
-			var items []actionItem
+			// Prevent memory leaks: clear pointers in the slice before resetting length
+			clear(items)
+			items = items[:0]
 			timeout := g.config.ZombieTimeout.Nanoseconds()
 
 			g.inflightTasks.Range(func(key *entry, value *taskState) bool {
