@@ -97,9 +97,12 @@ func (c *closureTask[T]) Execute(ctx Context) (err error) {
 	// it to the system-level Config.OnError hook for downstream alerting.
 	defer func() {
 		if p := recover(); p != nil {
-			panicErr := fmt.Errorf("task panicked: %v\n%s", p, debug.Stack())
-			c.future.err.CompareAndSwap(nil, panicErr)
-			err = panicErr // Let the Gatekeeper bleed. Do not swallow.
+			// Security: Sanitize the public-facing error to prevent stack trace leakage.
+			publicErr := fmt.Errorf("task panicked: %v", p)
+			c.future.err.CompareAndSwap(nil, publicErr)
+
+			// Internal telemetry still gets the full stack trace for observability.
+			err = fmt.Errorf("task panicked: %v\n%s", p, debug.Stack())
 		}
 	}()
 
