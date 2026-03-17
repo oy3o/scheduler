@@ -3,6 +3,7 @@ package scheduler
 import (
 	"context"
 	"fmt"
+	"math/rand/v2"
 	"os"
 	"runtime"
 	"runtime/debug"
@@ -49,8 +50,7 @@ type Gatekeeper struct {
 	errorDropped atomic.Int64
 	zombieCount  atomic.Int64
 
-	latencyShards      [numShards]latencyShard
-	latencyShardCursor atomic.Uint64
+	latencyShards [numShards]latencyShard
 
 	rootCtx atomic.Value // Stores the context.Context from Start()
 
@@ -486,7 +486,10 @@ func (g *Gatekeeper) releaseSlot() {
 }
 
 func (g *Gatekeeper) recordLatency(d time.Duration) {
-	shardIdx := int(g.latencyShardCursor.Add(1) % numShards)
+	// ⚡ Bolt: Replaced atomic round-robin cursor with thread-local PRNG.
+	// This eliminates atomic contention on a single memory address when thousands
+	// of tasks complete concurrently, dramatically reducing P99 latency overhead.
+	shardIdx := rand.IntN(numShards)
 	shard := &g.latencyShards[shardIdx]
 
 	shard.mu.Lock()
