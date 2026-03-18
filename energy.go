@@ -63,11 +63,16 @@ func Weight(priority int) float64 {
 // fairness term dominates the static logarithmic bonus. This prevents cooperative
 // "yield-spamming" tasks from permanently monopolizing the CPU away from fresh arrivals.
 func Energy(runtimeNano float64, weight float64, creationPressure float64, yieldCount int) float64 {
+	runtimeMs := runtimeNano / 1e6
+	if runtimeMs < 1.0 {
+		runtimeMs = 1.0
+	}
+
 	if weight <= 0 {
 		weight = 1e-9
 	}
 
-	fairness := runtimeNano / weight
+	fairness := runtimeMs / weight
 
 	// Creation penalty: logarithmic to dampen burst sensitivity.
 	// Falls back to math.Log only for extreme bursts (>1024 concurrent submissions).

@@ -27,20 +27,12 @@ func TestEntryPoolRecycling(t *testing.T) {
 	// Since entries are pooled, we should see the same addresses repeating.
 	const numTasks = 100
 	addrs := make(map[uintptr]int)
-	var mu sync.Mutex
 
 	var wg sync.WaitGroup
 	wg.Add(numTasks)
 
 	for i := 0; i < numTasks; i++ {
 		_, err := SubmitVoid(g, 0, func(ctx Context) error {
-			mu.Lock()
-			// We can't easily access the entry pointer from the task itself
-			// without exposing internal implementation details.
-			// However, we can observe the "generation" counter via reflection or
-			// by adding a debug method. For this test, we'll verify the system
-			// doesn't crash and handles high churn correctly.
-			mu.Unlock()
 			wg.Done()
 			return nil
 		})
@@ -175,7 +167,7 @@ func TestGhostPrevention(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	// Gatekeeper must be explicitly started before accepting submissions to prevent 
+	// Gatekeeper must be explicitly started before accepting submissions to prevent
 	// premature context expiration and ensure background monitors are active.
 	go g.Start(ctx)
 	// Spin-wait for Start() to set the started flag, preventing Submit race.
