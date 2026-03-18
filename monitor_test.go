@@ -2,6 +2,7 @@ package scheduler
 
 import (
 	"math"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -71,9 +72,9 @@ func TestDetectSaturation_Basic(t *testing.T) {
 func TestDetectSaturation_DecreaseAndPanic(t *testing.T) {
 	cfg := DefaultConfig()
 	cfg.StrictLivelockPanic = false
-	var lastErr error
+	var lastErr atomic.Pointer[error]
 	cfg.OnError = func(task Task, err error) {
-		lastErr = err
+		lastErr.Store(&err)
 	}
 	g := New(cfg)
 
@@ -110,7 +111,7 @@ func TestDetectSaturation_DecreaseAndPanic(t *testing.T) {
 
 	// OnError is called in a goroutine, wait a bit
 	time.Sleep(10 * time.Millisecond)
-	if lastErr == nil {
+	if lastErr.Load() == nil {
 		t.Error("expected OnError to be called at 50 ticks")
 	}
 
