@@ -54,8 +54,8 @@ func (g *Gatekeeper) monitorLatency(ctx context.Context) {
 				continue
 			}
 
-			// We no longer instantly reset to 0
-			// to prevent high-frequency jitter from hiding persistent boundary saturation.
+			// Decrement ticks gradually to prevent high-frequency jitter
+			// from hiding persistent boundary saturation.
 			if ticks > 0 {
 				ticks--
 			}
