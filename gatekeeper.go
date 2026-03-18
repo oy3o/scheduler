@@ -80,7 +80,12 @@ func newShardedMap() *shardedMap {
 
 func (s *shardedMap) Load(key *entry) (*taskState, bool) {
 	addr := uint64(uintptr(unsafe.Pointer(key)))
-	idx := (addr ^ (addr >> 16)) % numShards
+	// ⚡ Bolt: *entry is cache-line padded to exactly 128 bytes, meaning the lowest
+	// 7 bits of its memory address are always 0. The old hash (addr ^ (addr >> 16))
+	// preserved these 0s in the lowest 3 bits, destroying the modulo distribution
+	// and causing massive lock contention by grouping entries into a few shards.
+	// By shifting right by 7, we discard the dead bits and restore perfect O(1) spread.
+	idx := ((addr >> 7) ^ (addr >> 14) ^ (addr >> 21)) % numShards
 	shard := &s.shards[idx]
 	shard.RLock()
 	v, ok := shard.m[key]
@@ -90,7 +95,7 @@ func (s *shardedMap) Load(key *entry) (*taskState, bool) {
 
 func (s *shardedMap) Store(key *entry, value *taskState) {
 	addr := uint64(uintptr(unsafe.Pointer(key)))
-	idx := (addr ^ (addr >> 16)) % numShards
+	idx := ((addr >> 7) ^ (addr >> 14) ^ (addr >> 21)) % numShards
 	shard := &s.shards[idx]
 	shard.Lock()
 	shard.m[key] = value
@@ -99,7 +104,7 @@ func (s *shardedMap) Store(key *entry, value *taskState) {
 
 func (s *shardedMap) Delete(key *entry) {
 	addr := uint64(uintptr(unsafe.Pointer(key)))
-	idx := (addr ^ (addr >> 16)) % numShards
+	idx := ((addr >> 7) ^ (addr >> 14) ^ (addr >> 21)) % numShards
 	shard := &s.shards[idx]
 	shard.Lock()
 	delete(shard.m, key)
