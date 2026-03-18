@@ -3,6 +3,7 @@ package scheduler
 import (
 	"math"
 	"testing"
+	"time"
 )
 
 func TestAIMD_Increase_Basic(t *testing.T) {
@@ -72,5 +73,53 @@ func TestAIMD_Increase_NoCeilEffect(t *testing.T) {
 
 	if a.limit != 101.0 {
 		t.Errorf("expected limit 101.0, got %f", a.limit)
+	}
+}
+
+func TestAIMD_ObserveWithCanary_CPUChoking(t *testing.T) {
+	// target=1000, initialLimit=100
+	a := NewAIMD(1.0, 0.5, 1000, 100, 1, 1000)
+	// Bypass cooldown
+	a.lastDecreaseNano.Store(NowNano() - int64(time.Hour))
+
+	// Trigger CPU Choking branch (canaryDelayNano > CanaryToleranceNano)
+	canaryDelay := CanaryToleranceNano + 10000.0
+	a.ObserveWithCanary(500, canaryDelay)
+
+	// Since canaryDelay > CanaryToleranceNano, Decrease is called with effectiveLatency = target + canaryDelay
+	// effectiveLatency = 1000 + CanaryToleranceNano + 10000
+	// This will cause ratio > 1, so beta is reduced and limit decreases significantly.
+	if a.limit >= 100.0 {
+		t.Errorf("expected limit to decrease under CPU choking, got %f", a.limit)
+	}
+}
+
+func TestAIMD_ObserveWithCanary_TasksExceedingTarget(t *testing.T) {
+	// target=1000, initialLimit=100
+	a := NewAIMD(1.0, 0.5, 1000, 100, 1, 1000)
+	// Bypass cooldown
+	a.lastDecreaseNano.Store(NowNano() - int64(time.Hour))
+
+	// Trigger gentleDecay branch (taskP99Nano > target, canary OK)
+	a.ObserveWithCanary(2000, 0)
+
+	// gentleDecay multiplies limit by 0.95
+	expected := 100.0 * 0.95
+	if math.Abs(a.limit-expected) > 1e-9 {
+		t.Errorf("expected gentle decay limit to be %f, got %f", expected, a.limit)
+	}
+}
+
+func TestAIMD_ObserveWithCanary_CleanLogic(t *testing.T) {
+	// target=1000, initialLimit=100
+	a := NewAIMD(1.0, 0.5, 1000, 100, 1, 1000)
+
+	// Trigger clean logic branch (taskP99Nano <= target, canary OK)
+	a.ObserveWithCanary(500, 0)
+
+	// Increase adds alpha (1.0)
+	expected := 101.0
+	if math.Abs(a.limit-expected) > 1e-9 {
+		t.Errorf("expected clean logic limit to be %f, got %f", expected, a.limit)
 	}
 }
