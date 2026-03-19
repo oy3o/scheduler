@@ -78,6 +78,11 @@ func TestFuture_PanicIsolation(t *testing.T) {
 	if !strings.Contains(getErr.Error(), "bloody sincerity") {
 		t.Errorf("Expected error to contain panic payload, got: %v", getErr)
 	}
+
+	// Verify that stack trace is NOT leaked in the public Future API
+	if strings.Contains(getErr.Error(), "goroutine") || strings.Contains(getErr.Error(), "debug.Stack") {
+		t.Errorf("Expected sanitized error without stack trace, got: %v", getErr)
+	}
 }
 
 func TestFuture_Join(t *testing.T) {
