@@ -209,33 +209,45 @@ func (h *energyShard) pop() *entry {
 
 // --- strictly-typed sift operations (called only under lock) ---
 
+// siftUp restores the heap property by moving the element at index i up.
+// It uses a single-assignment "hole" optimization instead of full swaps,
+// reducing memory writes in the hot path.
 func (h *energyShard) siftUp(i int) {
+	e := h.entries[i]
 	for i > 0 {
 		parent := (i - 1) / 2
-		if h.entries[parent].energy <= h.entries[i].energy {
+		if h.entries[parent].energy <= e.energy {
 			break
 		}
-		h.entries[parent], h.entries[i] = h.entries[i], h.entries[parent]
+		// Move parent down, avoiding a full swap and extra reads
+		h.entries[i] = h.entries[parent]
 		i = parent
 	}
+	h.entries[i] = e
 }
 
+// siftDown restores the heap property by moving the element at index i down.
+// It uses a single-assignment "hole" optimization instead of full swaps,
+// reducing memory writes in the hot path.
 func (h *energyShard) siftDown(i int) {
 	n := len(h.entries)
+	e := h.entries[i]
 	for {
-		smallest := i
-		left := 2*i + 1
-		right := 2*i + 2
-		if left < n && h.entries[left].energy < h.entries[smallest].energy {
-			smallest = left
-		}
-		if right < n && h.entries[right].energy < h.entries[smallest].energy {
-			smallest = right
-		}
-		if smallest == i {
+		child := 2*i + 1 // left child
+		if child >= n {
 			break
 		}
-		h.entries[i], h.entries[smallest] = h.entries[smallest], h.entries[i]
-		i = smallest
+		// Find the smaller of the two children
+		if right := child + 1; right < n && h.entries[right].energy < h.entries[child].energy {
+			child = right
+		}
+		// If the current element is smaller than or equal to the smallest child, we're done
+		if e.energy <= h.entries[child].energy {
+			break
+		}
+		// Move child up, avoiding a full swap
+		h.entries[i] = h.entries[child]
+		i = child
 	}
+	h.entries[i] = e
 }

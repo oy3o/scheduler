@@ -10,3 +10,7 @@
 ## 2025-02-13 - Hashing Cache-Line Aligned Memory Pointers
 **Learning:** When using memory pointer addresses to hash and distribute load into shards (e.g., via `modulo`), cache-line padding (like forcing structs to exactly 128 bytes) creates memory addresses where the lowest 7 bits are always zero. If the hash algorithm relies on these lowest bits (like `(addr ^ (addr >> 16)) % 8`), the uniform distribution is completely destroyed, clumping allocations into a few shards and causing severe lock contention.
 **Action:** When hashing pointers of naturally large or deliberately padded structs, always right-shift the address by the alignment boundary (e.g., `addr >> 7` for 128 bytes) before applying any XOR or modulo operations to discard the "dead" zero bits and restore a uniform distribution.
+
+## 2024-10-24 - Single-Assignment Hole Optimization in Min-Heap
+**Learning:** In highly trafficked min-heaps (like the sharded `energyHeap`), `siftUp` and `siftDown` operations represent a major CPU bottleneck due to multiple array reads and writes during swaps. A standard swap requires 3 assignments and 2 array reads per level.
+**Action:** Implement the single-assignment "hole" optimization: store the element being moved in a temporary variable, move parents/children into the current "hole" with a single assignment per level, and finally drop the temporary variable into the final hole. This reduces array reads and writes significantly in the hot path.
