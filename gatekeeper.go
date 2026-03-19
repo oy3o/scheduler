@@ -243,61 +243,13 @@ func (g *Gatekeeper) Start(ctx context.Context) error {
 		return fmt.Errorf("gatekeeper: Start() called more than once")
 	}
 	defer close(g.doneCh)
-	g.bgWg.Add(4)
-	go func() {
-		defer g.bgWg.Done()
-		defer func() {
-			if r := recover(); r != nil {
-				if g.config.OnPanic != nil {
-					g.config.OnPanic(nil, r)
-				} else {
-					panic(r)
-				}
-			}
-		}()
-		g.decayCreationPressure(ctx)
-	}()
-	go func() {
-		defer g.bgWg.Done()
-		defer func() {
-			if r := recover(); r != nil {
-				if g.config.OnPanic != nil {
-					g.config.OnPanic(nil, r)
-				} else {
-					panic(r)
-				}
-			}
-		}()
-		g.monitorLatency(ctx)
-	}()
-	go func() {
-		defer g.bgWg.Done()
-		defer func() {
-			if r := recover(); r != nil {
-				if g.config.OnPanic != nil {
-					g.config.OnPanic(nil, r)
-				} else {
-					panic(r)
-				}
-			}
-		}()
-		g.watchdogScan(ctx)
-	}()
+
+	g.spawnBackground(func() { g.decayCreationPressure(ctx) })
+	g.spawnBackground(func() { g.monitorLatency(ctx) })
+	g.spawnBackground(func() { g.watchdogScan(ctx) })
 
 	// Launch the Canary
-	go func() {
-		defer g.bgWg.Done()
-		defer func() {
-			if r := recover(); r != nil {
-				if g.config.OnPanic != nil {
-					g.config.OnPanic(nil, r)
-				} else {
-					panic(r)
-				}
-			}
-		}()
-		g.runCanary(ctx)
-	}()
+	g.spawnBackground(func() { g.runCanary(ctx) })
 
 	for {
 		if ctx.Err() != nil {
@@ -482,6 +434,23 @@ func (g *Gatekeeper) signal() {
 	case g.notify <- struct{}{}:
 	default:
 	}
+}
+
+func (g *Gatekeeper) spawnBackground(f func()) {
+	g.bgWg.Add(1)
+	go func() {
+		defer g.bgWg.Done()
+		defer func() {
+			if r := recover(); r != nil {
+				if g.config.OnPanic != nil {
+					g.config.OnPanic(nil, r)
+				} else {
+					panic(r)
+				}
+			}
+		}()
+		f()
+	}()
 }
 
 func (g *Gatekeeper) releaseSlot() {
