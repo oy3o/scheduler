@@ -177,6 +177,9 @@ func New(cfg Config) *Gatekeeper {
 }
 
 func (g *Gatekeeper) Submit(task Task) error {
+	if task == nil {
+		return fmt.Errorf("gatekeeper: cannot submit nil task")
+	}
 	if !g.started.Load() {
 		return fmt.Errorf("gatekeeper: Submit() called before Start()")
 	}

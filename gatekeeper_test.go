@@ -85,6 +85,26 @@ func (t *panicTask) Execute(_ Context) error {
 
 // --- Tests ---
 
+func TestGatekeeper_SubmitNilTask(t *testing.T) {
+	g := New(DefaultConfig())
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	go g.Start(ctx)
+	for !g.started.Load() {
+		runtime.Gosched()
+	}
+
+	// Submitting a nil task should safely return an error without panicking
+	err := g.Submit(nil)
+	if err == nil {
+		t.Fatal("Expected an error when submitting a nil task, got nil")
+	}
+	if !strings.Contains(err.Error(), "cannot submit nil task") {
+		t.Fatalf("Expected specific nil task error, got: %v", err)
+	}
+}
+
 func TestGatekeeper_BasicSubmitAndComplete(t *testing.T) {
 	g := New(DefaultConfig())
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
