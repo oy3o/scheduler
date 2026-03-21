@@ -168,6 +168,38 @@ func TestGatekeeper_PanicRecovery(t *testing.T) {
 	cancel()
 }
 
+func TestGatekeeper_PanicLeakage(t *testing.T) {
+	cfg := DefaultConfig()
+
+	errCh := make(chan error, 1)
+	cfg.OnError = func(task Task, err error) {
+		errCh <- err
+	}
+	g := New(cfg)
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	panicker := &panicTask{priority: 3, done: make(chan struct{})}
+
+	go g.Start(ctx)
+	for !g.started.Load() {
+		runtime.Gosched()
+	}
+
+	if err := g.Submit(panicker); err != nil {
+		t.Fatalf("Submit failed: %v", err)
+	}
+
+	select {
+	case err := <-errCh:
+		if strings.Contains(err.Error(), "goroutine") || strings.Contains(err.Error(), "debug.Stack") {
+			t.Errorf("stack trace leaked in OnError: %v", err)
+		}
+	case <-time.After(1 * time.Second):
+		t.Fatal("did not receive error from OnError")
+	}
+}
+
 func TestGatekeeper_GracefulShutdown(t *testing.T) {
 	cfg := DefaultConfig()
 	cfg.InitialLimit = 8
