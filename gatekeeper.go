@@ -409,7 +409,10 @@ func (g *Gatekeeper) runTask(baseCtx context.Context, e *entry, isFastPath bool)
 	func() {
 		defer func() {
 			if r := recover(); r != nil {
-				taskErr = fmt.Errorf("task panicked: %v\n%s", r, debug.Stack())
+				if g.config.OnPanic != nil {
+					g.config.OnPanic(e.task, fmt.Errorf("task panicked: %v\n%s", r, debug.Stack()))
+				}
+				taskErr = fmt.Errorf("task panicked: %v", r)
 			}
 		}()
 		taskErr = e.task.Execute(s)
