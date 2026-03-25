@@ -66,6 +66,7 @@ type shardedMap struct {
 	shards [numShards]struct {
 		sync.RWMutex
 		m map[*entry]*taskState
+		_ [cacheLineSize]byte
 	}
 }
 
