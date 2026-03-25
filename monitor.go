@@ -3,6 +3,7 @@ package scheduler
 import (
 	"context"
 	"fmt"
+	"slices"
 	"time"
 )
 
@@ -129,22 +130,10 @@ func sortedPercentileMut(data []float64, p float64) float64 {
 	}
 
 	if p >= 1.0 {
-		max := data[0]
-		for _, v := range data[1:] {
-			if v > max {
-				max = v
-			}
-		}
-		return max
+		return slices.Max(data)
 	}
 	if p <= 0.0 {
-		min := data[0]
-		for _, v := range data[1:] {
-			if v < min {
-				min = v
-			}
-		}
-		return min
+		return slices.Min(data)
 	}
 
 	idx := float64(len(data)-1) * p
@@ -158,12 +147,7 @@ func sortedPercentileMut(data []float64, p float64) float64 {
 	vLo := quickSelect(data, lo)
 
 	// vHi is the minimum of elements AFTER lo
-	vHi := data[lo+1]
-	for i := lo + 2; i < len(data); i++ {
-		if data[i] < vHi {
-			vHi = data[i]
-		}
-	}
+	vHi := slices.Min(data[lo+1:])
 
 	frac := idx - float64(lo)
 	return vLo + frac*(vHi-vLo)
