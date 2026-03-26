@@ -6,6 +6,7 @@ import (
 	"math/rand/v2"
 	"os"
 	"runtime"
+	"runtime/debug"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -410,7 +411,7 @@ func (g *Gatekeeper) runTask(baseCtx context.Context, e *entry, isFastPath bool)
 		defer func() {
 			if r := recover(); r != nil {
 				if g.config.OnPanic != nil {
-					g.config.OnPanic(e.task, r)
+					g.config.OnPanic(e.task, fmt.Errorf("%v\n%s", r, debug.Stack()))
 				}
 				taskErr = fmt.Errorf("task panicked: %v", r)
 			}
@@ -449,7 +450,7 @@ func (g *Gatekeeper) spawnBackground(f func()) {
 		defer func() {
 			if r := recover(); r != nil {
 				if g.config.OnPanic != nil {
-					g.config.OnPanic(nil, r)
+					g.config.OnPanic(nil, fmt.Errorf("%v\n%s", r, debug.Stack()))
 				} else {
 					panic(r)
 				}
@@ -619,7 +620,7 @@ func (g *Gatekeeper) safeOnError(task Task, err error) {
 		defer func() {
 			if r := recover(); r != nil {
 				if g.config.OnPanic != nil {
-					g.config.OnPanic(task, r)
+					g.config.OnPanic(task, fmt.Errorf("%v\n%s", r, debug.Stack()))
 				}
 			}
 			close(done)

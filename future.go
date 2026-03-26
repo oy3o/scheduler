@@ -3,7 +3,6 @@ package scheduler
 import (
 	"context"
 	"fmt"
-	"runtime/debug"
 	"sync"
 	"sync/atomic"
 )
@@ -92,15 +91,15 @@ func (c *closureTask[T]) Execute(ctx Context) (err error) {
 	// Panic isolation boundary (Bloody Sincerity):
 	// We do not silently swallow panics, nor do we let a single reckless user task
 	// crash the critical infrastructure of the gatekeeper host. We catch it,
-	// wrap it as a hard error containing the stack trace, and return it.
+	// wrap it as a sanitized public error, and then re-throw the panic to
+	// preserve the original stack trace for the upstream Gatekeeper.
 	// Gatekeeper's dispatch loop will observe this and forcefully route
-	// it to the system-level Config.OnError hook for downstream alerting.
+	// it to the system-level Config.OnPanic hook for downstream alerting.
 	defer func() {
 		if p := recover(); p != nil {
-			internalErr := fmt.Errorf("task panicked: %v\n%s", p, debug.Stack())
 			publicErr := fmt.Errorf("task panicked: %v", p)
 			c.future.err.CompareAndSwap(nil, publicErr)
-			err = internalErr // Let the Gatekeeper bleed. Do not swallow.
+			panic(p) // Re-throw to upstream Gatekeeper runTask for OnPanic handling
 		}
 	}()
 
