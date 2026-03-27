@@ -122,6 +122,10 @@ func (c *closureTask[T]) Execute(ctx Context) (err error) {
 // Your fn must cooperatively check the Gatekeeper's Context (the ctx argument)
 // for cancellation. See Future.Get documentation for details.
 func SubmitFunc[T any](g *Gatekeeper, priority int, fn func(ctx Context) (T, error)) (*Future[T], error) {
+	if fn == nil {
+		return nil, fmt.Errorf("gatekeeper: cannot submit nil function")
+	}
+
 	f := &Future[T]{
 		done: make(chan struct{}),
 	}
@@ -140,6 +144,9 @@ func SubmitFunc[T any](g *Gatekeeper, priority int, fn func(ctx Context) (T, err
 
 // SubmitVoid is a syntactic sugar for submitting tasks that do not return a value.
 func SubmitVoid(g *Gatekeeper, priority int, fn func(ctx Context) error) (*Future[Void], error) {
+	if fn == nil {
+		return nil, fmt.Errorf("gatekeeper: cannot submit nil function")
+	}
 	return SubmitFunc(g, priority, func(ctx Context) (Void, error) {
 		return Void{}, fn(ctx)
 	})
@@ -154,6 +161,11 @@ func SubmitVoid(g *Gatekeeper, priority int, fn func(ctx Context) error) (*Futur
 func Join[T any](ctx context.Context, futures ...*Future[T]) ([]T, error) {
 	if len(futures) == 0 {
 		return nil, nil
+	}
+	for _, f := range futures {
+		if f == nil {
+			return nil, fmt.Errorf("gatekeeper: cannot join nil future")
+		}
 	}
 
 	// Create an internal cancellation boundary.
