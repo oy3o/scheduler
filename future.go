@@ -19,7 +19,7 @@ type Void struct{}
 // promise—that a computed value (or an isolated failure) will eventually materialize,
 // allowing linear-style coordination across highly concurrent, non-linear work boundaries.
 type Future[T any] struct {
-	val       atomic.Value // Holds the result value of type T
+	val       T            // Holds the result value of type T
 	err       atomic.Value // Holds the execution error, if any
 	done      chan struct{}
 	closeOnce sync.Once
@@ -55,12 +55,7 @@ func (f *Future[T]) Get(ctx context.Context) (T, error) {
 			var zero T
 			return zero, rawErr.(error)
 		}
-		rawVal := f.val.Load()
-		if rawVal == nil {
-			var zero T
-			return zero, nil
-		}
-		return rawVal.(T), nil
+		return f.val, nil
 	}
 }
 
@@ -108,7 +103,7 @@ func (c *closureTask[T]) Execute(ctx Context) (err error) {
 	if resErr != nil {
 		c.future.err.CompareAndSwap(nil, resErr)
 	} else {
-		c.future.val.Store(res)
+		c.future.val = res
 	}
 	return nil
 }
