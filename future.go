@@ -45,6 +45,10 @@ func (f *Future[T]) closeDone() {
 // will be dropped without execution. Always pass a context with a timeout
 // as an escape hatch to prevent goroutine leaks in the caller.
 func (f *Future[T]) Get(ctx context.Context) (T, error) {
+	if ctx == nil {
+		var zero T
+		return zero, fmt.Errorf("gatekeeper: cannot get with nil context")
+	}
 	select {
 	case <-ctx.Done():
 		var zero T
@@ -154,6 +158,9 @@ func SubmitVoid(g *Gatekeeper, priority int, fn func(ctx Context) error) (*Futur
 // and bubbles the error up. It refuses to wait for the rest if the overarching premise
 // is already compromised. Structural integrity precedes completion.
 func Join[T any](ctx context.Context, futures ...*Future[T]) ([]T, error) {
+	if ctx == nil {
+		return nil, fmt.Errorf("gatekeeper: cannot join with nil context")
+	}
 	if len(futures) == 0 {
 		return nil, nil
 	}

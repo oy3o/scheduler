@@ -238,6 +238,10 @@ func (g *Gatekeeper) Submit(task Task) error {
 }
 
 func (g *Gatekeeper) Start(ctx context.Context) error {
+	if ctx == nil {
+		return fmt.Errorf("gatekeeper: cannot start with nil context")
+	}
+
 	// Store context BEFORE opening the gate to prevent nil dereference
 	// in rapid Submit() calls on the fast path.
 	g.rootCtx.Store(ctx)

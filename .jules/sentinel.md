@@ -1,9 +1,4 @@
-## 2024-03-19 - [Fix Stack Trace Leakage in Future API]
-**Vulnerability:** The `closureTask[T].Execute` method in `future.go` captured panic payloads, wrapped them in an error along with a full debug stack trace (`debug.Stack()`), and exposed this directly via the `Future.Get()` API.
-**Learning:** This implementation leaked sensitive internal application architecture details (stack traces) to upstream callers/APIs. The intention was to feed the stack trace to Gatekeeper's `safeOnError` telemetry hook, but storing it directly in the `Future.err` value exposed it to the public API contract as well.
-**Prevention:** Always separate public-facing error states from internal telemetry. Sanitized errors without system details should be presented to callers (e.g., `c.future.err.CompareAndSwap(nil, publicErr)`), while fully contextualized errors (with stack traces) should be routed separately to internal logging/telemetry hooks.
-
-## 2026-03-27 - [Fix DoS via Nil Dereference in Future API]
-**Vulnerability:** The `SubmitFunc`, `SubmitVoid`, and `Join` methods in `future.go` accepted `nil` values (nil functions or nil futures) without validation. Submitting a nil function would cause a runtime panic (`nil pointer dereference`) when executed by the Gatekeeper loop.
-**Learning:** Even if the core subsystem (`Gatekeeper.Submit`) has nil validations, wrapper APIs or higher-level abstractions must also validate their inputs independently. Assuming downstream will handle it causes the wrapper itself to trigger a panic (e.g., executing `nil` closure).
-**Prevention:** Always implement defensive programming at every public API boundary. Check for nil callbacks or objects before allocating resources or wrapping them into tasks to fail securely and gracefully.
+## 2023-10-27 - [Panic Isolation vs Observability]
+**Vulnerability:** Attempted to prevent stack trace leaks by either removing debug.Stack() or re-throwing panics in future.go.
+**Learning:** The existing code intentionally uses two separate errors: a publicErr without stack trace, and an internalErr with debug.Stack() for OnError telemetry. Re-throwing the panic breaks the application's Panic Isolation Boundary leading to DoS crashes, while removing debug.Stack() degrades critical internal observability without fixing an actual leak.
+**Prevention:** Do not remove debug.Stack() from internal errors or re-throw caught panics when the application relies on isolating failures and returning internal telemetry as errors. Focus on preventing panics at API boundaries (like nil checks).
