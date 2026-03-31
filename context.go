@@ -34,6 +34,7 @@ type taskStateHot struct {
 	entry           *entry
 	gate            *Gatekeeper
 	stateData       atomic.Uint64 // high 32: version, low 32: flags
+	ownsSlot        atomic.Bool   // IDEMPOTENT SLOT OWNERSHIP
 	watchdogPenalty atomic.Int64  // Added for lock-free penalty injection (Safe against concurrent recycle)
 }
 
@@ -67,6 +68,7 @@ func acquireCtx(ctx context.Context, g *Gatekeeper, e *entry) Context {
 	s.entry = e
 	s.start.Store(NowNano())
 	s.dispatchedAt.Store(s.start.Load())
+	s.ownsSlot.Store(true)
 
 	var newVersion uint32
 	for {
@@ -253,13 +255,17 @@ func (c Context) Yield() error {
 	s.entry.yieldCount++
 
 	if flags&flagZombied == 0 {
-		s.gate.releaseSlot()
+		if s.ownsSlot.CompareAndSwap(true, false) {
+			s.gate.releaseSlot()
+		}
 	} else {
 		// Only decrement zombieCount if we successfully cleared the flag.
 		// Prevents underflow if multiple goroutines race or Watchdog re-triggers.
 		if s.clearZombied(c.version) {
 			s.gate.zombieCount.Add(-1)
 		}
+		// Watchdog stole the slot explicitly. We acknowledge we don't own it.
+		s.ownsSlot.Store(false)
 	}
 
 	if sliceNano < minYieldLatencyNano {
@@ -295,13 +301,6 @@ func (c Context) requeueAndWait() error {
 			case s.entry.wake <- struct{}{}:
 			default:
 			}
-			// [Architectural Note]: Slot Compensation Protocol.
-			// When the gate is closed, we must manually increment 'active' by 1.
-			// This is because the caller (dispatch loop) WILL eventually call
-			// releaseSlot() via its defer chain, which decrements 'active'.
-			// By providing this +1 here, we neutralize the pending release
-			// and ensure the global slot count remains invariants-compliant.
-			s.gate.active.Add(1)
 			return ErrGateClosed
 		}
 	}
@@ -313,6 +312,7 @@ func (c Context) requeueAndWait() error {
 		if s.entry.state.Load() == stateDead {
 			return c.resolveYieldCancel()
 		}
+		s.ownsSlot.Store(true) // We own it again!
 		now := NowNano()
 		s.start.Store(now)
 		// Reset dispatch time to prevent Watchdog from assassinating
@@ -328,29 +328,15 @@ func (c Context) resolveYieldCancel() error {
 	s := c.state
 	if s.entry.state.CompareAndSwap(stateQueued, stateDead) {
 		s.gate.queued.Add(-1)
-		s.gate.active.Add(1)
 	} else {
 		currentState := s.entry.state.Load()
 		if currentState == stateDispatched {
-			// [Architectural Note]: We do NOT call s.gate.active.Add(1) here by default.
-			// The scheduler loop has already incremented 'active' when it popped the entry
-			// and transitioned it to stateDispatched. By waiting for the wake signal,
-			// we acknowledge the transfer of ownership to the local goroutine.
-			//
-			// [Deadlock Prevention]: We must NOT block indefinitely. If the root
-			// context is cancelled or the Gatekeeper stops, we MUST abort to
-			// allow for graceful termination of the goroutine.
 			select {
 			case <-s.entry.wake:
-				// [Architectural Note]: The dispatch loop's defer will handle releaseSlot().
+				s.ownsSlot.Store(true)
 			case <-s.gate.rootCtxDone():
 			case <-s.gate.doneCh:
-				// If rootCtxDone is nil, we must still respect Gatekeeper shutdown
 			}
-		} else {
-			// If CAS failed and state is NOT dispatched (e.g. stateQueued/stateDead),
-			// we must compensate for the pending releaseSlot in the caller's defer.
-			s.gate.active.Add(1)
 		}
 	}
 	if s.gate.closed.Load() {
@@ -387,10 +373,13 @@ func (c Context) EnterSyscall() {
 		// below cannot observe a newly-set flagZombied from a concurrent Watchdog tick.
 		currentData := s.stateData.Load()
 		if uint32(currentData)&flagZombied == 0 {
-			s.gate.releaseSlot()
+			if s.ownsSlot.CompareAndSwap(true, false) {
+				s.gate.releaseSlot()
+			}
 		} else {
 			s.clearZombied(c.version)
 			s.gate.zombieCount.Add(-1)
+			s.ownsSlot.Store(false)
 		}
 		s.gate.signal()
 	}
@@ -412,7 +401,6 @@ func (c Context) ExitSyscall() error {
 	}
 
 	if s.gate.closed.Load() {
-		s.gate.active.Add(1)
 		return ErrGateClosed
 	}
 

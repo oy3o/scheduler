@@ -165,41 +165,41 @@ func Join[T any](ctx context.Context, futures ...*Future[T]) ([]T, error) {
 
 	// Create an internal cancellation boundary.
 	// This ensures that if Join fails fast, we automatically unblock
-	// all internal goroutines waiting on fut.Get(), preventing leaks
-	// even if the user forgets to cancel the parent ctx.
+	// any nested or chained tasks relying on this specific join context.
 	joinCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
 	results := make([]T, len(futures))
-	errCh := make(chan error, len(futures))
 
-	// Launch parallel collection:
-	for i, f := range futures {
-		go func(idx int, fut *Future[T]) {
-			val, err := fut.Get(joinCtx)
-			if err != nil {
-				select {
-				case errCh <- err:
-				default:
+	// [Phase 1: Non-Blocking Fast Fail Pre-Check]
+	// Spin through all futures instantly without blocking. If any task has ALREADY
+	// panicked or returned an error, we catch it in O(N) nanoseconds and abort
+	// the entire batch before settling into the blocking wait.
+	for _, f := range futures {
+		select {
+		case <-f.done:
+			if err := f.err.Load(); err != nil {
+				// Fail Fast cleanup: Abort all other tasks in the join set
+				for _, fut := range futures {
+					if fut.aborter != nil {
+						fut.aborter()
+					}
 				}
-				return
+				return nil, err.(error)
 			}
-			// Check context before writing to silence race detector if Join returns early
-			select {
-			case <-joinCtx.Done():
-				return
-			default:
-				results[idx] = val
-				errCh <- nil
-			}
-		}(i, f)
+		default:
+		}
 	}
 
-	// Wait and Fail-Fast:
-	for range futures {
-		if err := <-errCh; err != nil {
+	// [Phase 2: Serial Polling]
+	// We iterate through futures and block on them sequentially. By sacrificing
+	// perfect chronological failure detection (a crash in future[10] won't be seen 
+	// until future[0..9] resolve), we completely eliminate the massive overhead of 
+	// spawning N waiter goroutines. This is a deliberate "Physical Symbiosis" tradeoff.
+	for i, f := range futures {
+		val, err := f.Get(joinCtx)
+		if err != nil {
 			// Fail Fast cleanup: Abort all other tasks in the join set
-			// to reclaim scheduler slots and prevent closure memory leaks.
 			for _, fut := range futures {
 				if fut.aborter != nil {
 					fut.aborter()
@@ -207,6 +207,7 @@ func Join[T any](ctx context.Context, futures ...*Future[T]) ([]T, error) {
 			}
 			return nil, err
 		}
+		results[i] = val
 	}
 
 	return results, nil

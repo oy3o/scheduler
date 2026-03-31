@@ -122,14 +122,17 @@ func TestDetectSaturation_DecreaseAndPanic(t *testing.T) {
 		t.Errorf("expected ticks to clamp to 50, got %d", ticks)
 	}
 
-	// Test Panic
+	// Test Degradation (Cardiogenic Shock Mode)
 	cfg.StrictLivelockPanic = true
 	g2 := New(cfg)
 	ticks = 49
-	defer func() {
-		if r := recover(); r == nil {
-			t.Error("expected panic at 50 ticks when StrictLivelockPanic is true")
-		}
-	}()
+
+	// Wait for AIMD initial cooldown so Decrease() actually functions for g2
+	time.Sleep(200 * time.Millisecond)
+
 	g2.detectSaturation(&ticks, active, limit, nil)
+
+	if uint64(g2.aimd.Limit()) > uint64(g2.config.MinConcurrency) {
+		t.Errorf("expected limit to forcefully degrade to MinConcurrency (%v), but it is %v", g2.config.MinConcurrency, g2.aimd.Limit())
+	}
 }

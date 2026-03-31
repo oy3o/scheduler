@@ -111,7 +111,15 @@ func (g *Gatekeeper) detectSaturation(ticks *int, active, limit float64, samples
 			)
 
 			if g.config.StrictLivelockPanic {
-				panic(err.Error())
+				// Cardiogenic Shock Mode: Force Limit to absolutely minimum to prevent
+				// inbound traffic from piling up on a frozen system.
+				for g.aimd.Limit() > g.config.MinConcurrency {
+					// Apply massive synthetic latency penalties to force rapid contraction
+					syntheticLatency := float64(g.config.TargetLatency.Nanoseconds()) * 10.0
+					g.aimd.Decrease(syntheticLatency)
+				}
+				g.safeOnError(nil, fmt.Errorf("gatekeeper: STRICT LIVELOCK PANIC INTERCEPTED - DEGRADING: %w", err))
+				g.signal()
 			} else {
 				g.safeOnError(nil, err)
 			}

@@ -80,12 +80,15 @@ func newShardedMap() *shardedMap {
 
 func (s *shardedMap) Load(key *entry) (*taskState, bool) {
 	addr := uint64(uintptr(unsafe.Pointer(key)))
-	// ⚡ Bolt: *entry is cache-line padded to exactly 128 bytes, meaning the lowest
-	// 7 bits of its memory address are always 0. The old hash (addr ^ (addr >> 16))
-	// preserved these 0s in the lowest 3 bits, destroying the modulo distribution
-	// and causing massive lock contention by grouping entries into a few shards.
-	// By shifting right by 7, we discard the dead bits and restore perfect O(1) spread.
-	idx := ((addr >> 7) ^ (addr >> 14) ^ (addr >> 21)) % numShards
+	// Professional spatial entropy mixer (fmix64 style) instead of bitshifting.
+	// sync.Pool allocations are typically 8-byte aligned, meaning bits 3+ are critical.
+	// We mix the high bits into the low bits to establish perfect O(1) spread.
+	addr ^= addr >> 33
+	addr *= 0xff51afd7ed558ccd
+	addr ^= addr >> 33
+	addr *= 0xc4ceb9fe1a85ec53
+	addr ^= addr >> 33
+	idx := addr % numShards
 	shard := &s.shards[idx]
 	shard.RLock()
 	v, ok := shard.m[key]
@@ -95,7 +98,12 @@ func (s *shardedMap) Load(key *entry) (*taskState, bool) {
 
 func (s *shardedMap) Store(key *entry, value *taskState) {
 	addr := uint64(uintptr(unsafe.Pointer(key)))
-	idx := ((addr >> 7) ^ (addr >> 14) ^ (addr >> 21)) % numShards
+	addr ^= addr >> 33
+	addr *= 0xff51afd7ed558ccd
+	addr ^= addr >> 33
+	addr *= 0xc4ceb9fe1a85ec53
+	addr ^= addr >> 33
+	idx := addr % numShards
 	shard := &s.shards[idx]
 	shard.Lock()
 	shard.m[key] = value
@@ -104,7 +112,12 @@ func (s *shardedMap) Store(key *entry, value *taskState) {
 
 func (s *shardedMap) Delete(key *entry) {
 	addr := uint64(uintptr(unsafe.Pointer(key)))
-	idx := ((addr >> 7) ^ (addr >> 14) ^ (addr >> 21)) % numShards
+	addr ^= addr >> 33
+	addr *= 0xff51afd7ed558ccd
+	addr ^= addr >> 33
+	addr *= 0xc4ceb9fe1a85ec53
+	addr ^= addr >> 33
+	idx := addr % numShards
 	shard := &s.shards[idx]
 	shard.Lock()
 	delete(shard.m, key)
@@ -386,7 +399,7 @@ func (g *Gatekeeper) runTask(baseCtx context.Context, e *entry, isFastPath bool)
 			}
 		}
 
-		if (flags&flagZombied) == 0 && (flags&flagInSyscall) == 0 {
+		if s.state.ownsSlot.CompareAndSwap(true, false) {
 			g.releaseSlot()
 		}
 
@@ -577,6 +590,7 @@ func (g *Gatekeeper) watchdogScan(ctx context.Context) {
 				if item.elapsed > timeout {
 					// Version validation via setZombied
 					if s.setZombied(item.version) {
+						s.ownsSlot.Store(false)
 						g.releaseSlot()
 						g.safeOnError(s.task, fmt.Errorf("gatekeeper: task zombied after %v", g.config.ZombieTimeout))
 						g.signal()
