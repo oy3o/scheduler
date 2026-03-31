@@ -222,3 +222,39 @@ func TestFuture_GatekeeperShutdownEscape(t *testing.T) {
 		t.Fatalf("Expected Get to escape via ErrGateClosed, got: %v", err)
 	}
 }
+
+func TestFutureGetNilContext(t *testing.T) {
+	cfg := DefaultConfig()
+	g := New(cfg)
+	go g.Start(context.Background())
+	defer g.Wait()
+
+	f, _ := SubmitFunc(g, PriorityNormal, func(ctx Context) (string, error) {
+		return "test", nil
+	})
+
+	_, err := f.Get(nil)
+	if err == nil {
+		t.Errorf("expected error when getting with nil context")
+	} else if err.Error() != "gatekeeper: cannot use nil context in Future.Get" {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+func TestJoinNilContext(t *testing.T) {
+	cfg := DefaultConfig()
+	g := New(cfg)
+	go g.Start(context.Background())
+	defer g.Wait()
+
+	f, _ := SubmitFunc(g, PriorityNormal, func(ctx Context) (string, error) {
+		return "test", nil
+	})
+
+	_, err := Join(nil, f)
+	if err == nil {
+		t.Errorf("expected error when joining with nil context")
+	} else if err.Error() != "gatekeeper: cannot use nil context in Join" {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
