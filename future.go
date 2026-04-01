@@ -45,6 +45,10 @@ func (f *Future[T]) closeDone() {
 // will be dropped without execution. Always pass a context with a timeout
 // as an escape hatch to prevent goroutine leaks in the caller.
 func (f *Future[T]) Get(ctx context.Context) (T, error) {
+	if ctx == nil {
+		var zero T
+		return zero, fmt.Errorf("gatekeeper: cannot use nil context in Future.Get")
+	}
 	select {
 	case <-ctx.Done():
 		var zero T
@@ -154,6 +158,9 @@ func SubmitVoid(g *Gatekeeper, priority int, fn func(ctx Context) error) (*Futur
 // and bubbles the error up. It refuses to wait for the rest if the overarching premise
 // is already compromised. Structural integrity precedes completion.
 func Join[T any](ctx context.Context, futures ...*Future[T]) ([]T, error) {
+	if ctx == nil {
+		return nil, fmt.Errorf("gatekeeper: cannot use nil context in Join")
+	}
 	if len(futures) == 0 {
 		return nil, nil
 	}
@@ -193,8 +200,8 @@ func Join[T any](ctx context.Context, futures ...*Future[T]) ([]T, error) {
 
 	// [Phase 2: Serial Polling]
 	// We iterate through futures and block on them sequentially. By sacrificing
-	// perfect chronological failure detection (a crash in future[10] won't be seen 
-	// until future[0..9] resolve), we completely eliminate the massive overhead of 
+	// perfect chronological failure detection (a crash in future[10] won't be seen
+	// until future[0..9] resolve), we completely eliminate the massive overhead of
 	// spawning N waiter goroutines. This is a deliberate "Physical Symbiosis" tradeoff.
 	for i, f := range futures {
 		val, err := f.Get(joinCtx)

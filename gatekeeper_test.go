@@ -354,7 +354,7 @@ func TestZombieCircuitBreaker(t *testing.T) {
 				s := value
 				data := s.stateData.Load()
 				flags := uint32(data)
-				tasks = append(tasks, fmt.Sprintf("dispatchedAt: %v, zombied: %v, flags: %b", s.dispatchedAt.Load(), (flags&flagZombied)!=0, flags))
+				tasks = append(tasks, fmt.Sprintf("dispatchedAt: %v, zombied: %v, flags: %b", s.dispatchedAt.Load(), (flags&flagZombied) != 0, flags))
 				return true
 			})
 			t.Fatalf("Expected code to panic but it did not after 3 seconds, zombies seen: %d, \nTasks: %v", g.Metrics().Zombies, tasks)
@@ -392,7 +392,7 @@ func TestGatekeeper_PriorityUltra(t *testing.T) {
 	// Give a moment for blocker to be dispatched
 	time.Sleep(50 * time.Millisecond)
 
-	// 2. Submit Normal followed by Ultra. 
+	// 2. Submit Normal followed by Ultra.
 	// Since the blocker is running, both will be queued.
 	SubmitVoid(g, PriorityNormal, func(ctx Context) error {
 		mu.Lock()
@@ -422,5 +422,17 @@ func TestGatekeeper_PriorityUltra(t *testing.T) {
 	}
 	if sequence[0] != "Ultra" {
 		t.Errorf("Expected Ultra to run first after blocker, but sequence was: %v", sequence)
+	}
+}
+
+func TestGatekeeperStartNilContext(t *testing.T) {
+	cfg := DefaultConfig()
+	g := New(cfg)
+
+	err := g.Start(nil)
+	if err == nil {
+		t.Errorf("expected error when starting with nil context")
+	} else if err.Error() != "gatekeeper: cannot start with nil context" {
+		t.Errorf("unexpected error: %v", err)
 	}
 }
