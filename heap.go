@@ -41,7 +41,7 @@ const (
 type energyShard struct {
 	mu      sync.Mutex
 	entries []*entry
-	_       [(cacheLineSize - unsafe.Sizeof(sync.Mutex{})%cacheLineSize)%cacheLineSize]byte // cache-line padding to prevent false sharing with mu
+	_       [(cacheLineSize - (unsafe.Sizeof(sync.Mutex{})+unsafe.Sizeof([]*entry{}))%cacheLineSize)%cacheLineSize]byte // cache-line padding to prevent false sharing
 }
 
 // energyHeap is a sharded min-heap ordered by energy to reduce lock contention.
