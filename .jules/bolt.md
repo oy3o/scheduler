@@ -14,3 +14,7 @@
 ## 2024-10-24 - Single-Assignment Hole Optimization in Min-Heap
 **Learning:** In highly trafficked min-heaps (like the sharded `energyHeap`), `siftUp` and `siftDown` operations represent a major CPU bottleneck due to multiple array reads and writes during swaps. A standard swap requires 3 assignments and 2 array reads per level.
 **Action:** Implement the single-assignment "hole" optimization: store the element being moved in a temporary variable, move parents/children into the current "hole" with a single assignment per level, and finally drop the temporary variable into the final hole. This reduces array reads and writes significantly in the hot path.
+
+## 2025-05-14 - Loop Fusion and Delayed Resource Allocation in Join
+**Learning:** Merging redundant iterations over the same slice (Loop Fusion), such as combining validation checks and non-blocking 'fast-fail' pre-checks, reduces iteration overhead and improves instruction cache locality. Furthermore, delaying `context.WithCancel` and slice allocations until after these initial O(N) checks avoids unnecessary overhead in common early-failure scenarios.
+**Action:** Always combine validation loops with Phase 1 state checks in coordination functions like `Join`. Defer heavy object creation (contexts, result slices) until the fast-fail phase has passed successfully.
