@@ -164,9 +164,28 @@ func Join[T any](ctx context.Context, futures ...*Future[T]) ([]T, error) {
 	if len(futures) == 0 {
 		return nil, nil
 	}
+
+	// [Phase 1: Non-Blocking Fast Fail Pre-Check & Validation]
+	// Spin through all futures instantly without blocking. If any task has ALREADY
+	// panicked or returned an error, we catch it in O(N) nanoseconds and abort
+	// the entire batch before settling into the blocking wait.
+	// We also perform nil-checks here to merge redundant iterations.
 	for _, f := range futures {
 		if f == nil {
 			return nil, fmt.Errorf("gatekeeper: cannot join nil future")
+		}
+		select {
+		case <-f.done:
+			if err := f.err.Load(); err != nil {
+				// Fail Fast cleanup: Abort all other tasks in the join set
+				for _, fut := range futures {
+					if fut != nil && fut.aborter != nil {
+						fut.aborter()
+					}
+				}
+				return nil, err.(error)
+			}
+		default:
 		}
 	}
 
@@ -177,26 +196,6 @@ func Join[T any](ctx context.Context, futures ...*Future[T]) ([]T, error) {
 	defer cancel()
 
 	results := make([]T, len(futures))
-
-	// [Phase 1: Non-Blocking Fast Fail Pre-Check]
-	// Spin through all futures instantly without blocking. If any task has ALREADY
-	// panicked or returned an error, we catch it in O(N) nanoseconds and abort
-	// the entire batch before settling into the blocking wait.
-	for _, f := range futures {
-		select {
-		case <-f.done:
-			if err := f.err.Load(); err != nil {
-				// Fail Fast cleanup: Abort all other tasks in the join set
-				for _, fut := range futures {
-					if fut.aborter != nil {
-						fut.aborter()
-					}
-				}
-				return nil, err.(error)
-			}
-		default:
-		}
-	}
 
 	// [Phase 2: Serial Polling]
 	// We iterate through futures and block on them sequentially. By sacrificing
