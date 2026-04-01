@@ -80,9 +80,14 @@ func newShardedMap() *shardedMap {
 
 func (s *shardedMap) Load(key *entry) (*taskState, bool) {
 	addr := uint64(uintptr(unsafe.Pointer(key)))
-	// Professional spatial entropy mixer (fmix64 style) instead of bitshifting.
-	// sync.Pool allocations are typically 8-byte aligned, meaning bits 3+ are critical.
-	// We mix the high bits into the low bits to establish perfect O(1) spread.
+	// ⚡ Bolt: Memory addresses for `entry` are exactly 128-byte aligned due to
+	// cache-line padding. This means the lowest 7 bits of the pointer are ALWAYS zero.
+	// We MUST right-shift by 7 to discard these dead bits before mixing, otherwise
+	// the fmix64 avalanche effect is compromised, leading to severe bucket clumping
+	// and lock contention on specific shards.
+	addr >>= 7
+
+	// Professional spatial entropy mixer (fmix64 style).
 	addr ^= addr >> 33
 	addr *= 0xff51afd7ed558ccd
 	addr ^= addr >> 33
@@ -98,6 +103,7 @@ func (s *shardedMap) Load(key *entry) (*taskState, bool) {
 
 func (s *shardedMap) Store(key *entry, value *taskState) {
 	addr := uint64(uintptr(unsafe.Pointer(key)))
+	addr >>= 7 // discard dead 128-byte alignment bits
 	addr ^= addr >> 33
 	addr *= 0xff51afd7ed558ccd
 	addr ^= addr >> 33
@@ -112,6 +118,7 @@ func (s *shardedMap) Store(key *entry, value *taskState) {
 
 func (s *shardedMap) Delete(key *entry) {
 	addr := uint64(uintptr(unsafe.Pointer(key)))
+	addr >>= 7 // discard dead 128-byte alignment bits
 	addr ^= addr >> 33
 	addr *= 0xff51afd7ed558ccd
 	addr ^= addr >> 33
