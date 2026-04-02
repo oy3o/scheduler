@@ -10,14 +10,14 @@ import (
 // Padded to exactly cacheLineSize to prevent False Sharing between adjacent slots.
 type fastQueueNode struct {
 	// [Architectural Note]: sequence is a uint64 to prevent ABA problems.
-	// If reduced to uint32 to save memory, a sequence wrap-around could occur 
-	// while a producer is stalled (Vyukov ABA). At 10 million ops/sec, uint32 
-	// wraps in ~7 minutes, risking catastrophic data corruption. uint64 takes 
-	// 58,000 years, pushing the mathematical boundary safely beyond the uptime 
+	// If reduced to uint32 to save memory, a sequence wrap-around could occur
+	// while a producer is stalled (Vyukov ABA). At 10 million ops/sec, uint32
+	// wraps in ~7 minutes, risking catastrophic data corruption. uint64 takes
+	// 58,000 years, pushing the mathematical boundary safely beyond the uptime
 	// of the physical hardware.
 	sequence atomic.Uint64
 	entry    atomic.Pointer[entry]
-	_        [(cacheLineSize - (unsafe.Sizeof(atomic.Uint64{})+unsafe.Sizeof(atomic.Pointer[entry]{}))%cacheLineSize)%cacheLineSize]byte
+	_        [(cacheLineSize - (unsafe.Sizeof(atomic.Uint64{})+unsafe.Sizeof(atomic.Pointer[entry]{}))%cacheLineSize) % cacheLineSize]byte
 }
 
 var _ = [1]struct{}{}[unsafe.Sizeof(fastQueueNode{})%cacheLineSize]
@@ -38,11 +38,11 @@ var _ = [1]struct{}{}[unsafe.Sizeof(fastQueueNode{})%cacheLineSize]
 type fastQueue struct {
 	buffer []fastQueueNode
 	mask   uint64
-	_      [(cacheLineSize - (unsafe.Sizeof([]fastQueueNode{})+unsafe.Sizeof(uint64(0)))%cacheLineSize)%cacheLineSize]byte
+	_      [(cacheLineSize - (unsafe.Sizeof([]fastQueueNode{})+unsafe.Sizeof(uint64(0)))%cacheLineSize) % cacheLineSize]byte
 	head   atomic.Uint64
-	_      [(cacheLineSize - unsafe.Sizeof(atomic.Uint64{})%cacheLineSize)%cacheLineSize]byte
+	_      [(cacheLineSize - unsafe.Sizeof(atomic.Uint64{})%cacheLineSize) % cacheLineSize]byte
 	tail   atomic.Uint64
-	_      [(cacheLineSize - unsafe.Sizeof(atomic.Uint64{})%cacheLineSize)%cacheLineSize]byte
+	_      [(cacheLineSize - unsafe.Sizeof(atomic.Uint64{})%cacheLineSize) % cacheLineSize]byte
 }
 
 func newFastQueue(capacity uint64) *fastQueue {
@@ -63,7 +63,7 @@ func newFastQueue(capacity uint64) *fastQueue {
 func (q *fastQueue) Push(e *entry) bool {
 	var n *fastQueueNode
 	var pos uint64
-	
+
 	// Max retry for CAS contention
 	for i := 0; i < 100; i++ {
 		pos = q.tail.Load()
@@ -93,7 +93,7 @@ func (q *fastQueue) Push(e *entry) bool {
 func (q *fastQueue) Pop() *entry {
 	var n *fastQueueNode
 	var pos uint64
-	
+
 	for i := 0; i < 100; i++ {
 		pos = q.head.Load()
 		n = &q.buffer[pos&q.mask]
