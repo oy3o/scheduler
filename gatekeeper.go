@@ -197,6 +197,9 @@ func New(cfg Config) *Gatekeeper {
 }
 
 func (g *Gatekeeper) Submit(task Task) error {
+	if g == nil {
+		return fmt.Errorf("gatekeeper: cannot submit to nil gatekeeper")
+	}
 	if task == nil {
 		return fmt.Errorf("gatekeeper: cannot submit nil task")
 	}
@@ -258,6 +261,9 @@ func (g *Gatekeeper) Submit(task Task) error {
 }
 
 func (g *Gatekeeper) Start(ctx context.Context) error {
+	if g == nil {
+		return fmt.Errorf("gatekeeper: cannot start nil gatekeeper")
+	}
 	if ctx == nil {
 		return fmt.Errorf("gatekeeper: cannot start with nil context")
 	}

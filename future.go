@@ -50,6 +50,10 @@ func (f *Future[T]) Get(ctx context.Context) (T, error) {
 		var zero T
 		return zero, fmt.Errorf("gatekeeper: cannot use nil context in Future.Get")
 	}
+	if f == nil {
+		var zero T
+		return zero, fmt.Errorf("gatekeeper: cannot get on nil future")
+	}
 	select {
 	case <-ctx.Done():
 		var zero T
@@ -132,6 +136,9 @@ func (c *closureTask[T]) Execute(ctx Context) (err error) {
 // Your fn must cooperatively check the Gatekeeper's Context (the ctx argument)
 // for cancellation. See Future.Get documentation for details.
 func SubmitFunc[T any](g *Gatekeeper, priority int, fn func(ctx Context) (T, error)) (*Future[T], error) {
+	if g == nil {
+		return nil, fmt.Errorf("gatekeeper: cannot submit to nil gatekeeper")
+	}
 	if fn == nil {
 		return nil, fmt.Errorf("gatekeeper: cannot submit nil function")
 	}
