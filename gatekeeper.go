@@ -197,6 +197,10 @@ func New(cfg Config) *Gatekeeper {
 }
 
 func (g *Gatekeeper) Submit(task Task) error {
+	// 🛡️ Sentinel: Prevent DoS via nil pointer dereference on public API boundary.
+	if g == nil {
+		return fmt.Errorf("gatekeeper: cannot submit to nil gatekeeper")
+	}
 	if task == nil {
 		return fmt.Errorf("gatekeeper: cannot submit nil task")
 	}
@@ -258,6 +262,10 @@ func (g *Gatekeeper) Submit(task Task) error {
 }
 
 func (g *Gatekeeper) Start(ctx context.Context) error {
+	// 🛡️ Sentinel: Prevent DoS via nil pointer dereference on public API boundary.
+	if g == nil {
+		return fmt.Errorf("gatekeeper: cannot start nil gatekeeper")
+	}
 	if ctx == nil {
 		return fmt.Errorf("gatekeeper: cannot start with nil context")
 	}
@@ -362,6 +370,10 @@ func (g *Gatekeeper) Start(ctx context.Context) error {
 }
 
 func (g *Gatekeeper) Wait() {
+	// 🛡️ Sentinel: Prevent DoS via nil pointer dereference on public API boundary.
+	if g == nil {
+		return
+	}
 	if !g.started.Load() {
 		return
 	}

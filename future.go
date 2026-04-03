@@ -46,6 +46,11 @@ func (f *Future[T]) closeDone() {
 // will be dropped without execution. Always pass a context with a timeout
 // as an escape hatch to prevent goroutine leaks in the caller.
 func (f *Future[T]) Get(ctx context.Context) (T, error) {
+	// 🛡️ Sentinel: Prevent DoS via nil pointer dereference on public API boundary.
+	if f == nil {
+		var zero T
+		return zero, fmt.Errorf("gatekeeper: cannot call Get on nil Future")
+	}
 	if ctx == nil {
 		var zero T
 		return zero, fmt.Errorf("gatekeeper: cannot use nil context in Future.Get")
@@ -132,6 +137,10 @@ func (c *closureTask[T]) Execute(ctx Context) (err error) {
 // Your fn must cooperatively check the Gatekeeper's Context (the ctx argument)
 // for cancellation. See Future.Get documentation for details.
 func SubmitFunc[T any](g *Gatekeeper, priority int, fn func(ctx Context) (T, error)) (*Future[T], error) {
+	// 🛡️ Sentinel: Prevent DoS via nil pointer dereference on public API boundary.
+	if g == nil {
+		return nil, fmt.Errorf("gatekeeper: cannot submit to nil gatekeeper")
+	}
 	if fn == nil {
 		return nil, fmt.Errorf("gatekeeper: cannot submit nil function")
 	}
@@ -154,6 +163,10 @@ func SubmitFunc[T any](g *Gatekeeper, priority int, fn func(ctx Context) (T, err
 
 // SubmitVoid is a syntactic sugar for submitting tasks that do not return a value.
 func SubmitVoid(g *Gatekeeper, priority int, fn func(ctx Context) error) (*Future[Void], error) {
+	// 🛡️ Sentinel: Prevent DoS via nil pointer dereference on public API boundary.
+	if g == nil {
+		return nil, fmt.Errorf("gatekeeper: cannot submit to nil gatekeeper")
+	}
 	if fn == nil {
 		return nil, fmt.Errorf("gatekeeper: cannot submit nil function")
 	}
