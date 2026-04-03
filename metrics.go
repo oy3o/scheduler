@@ -16,6 +16,10 @@ type Metrics struct {
 
 // Metrics returns a point-in-time snapshot of the Gatekeeper's internal state.
 func (g *Gatekeeper) Metrics() Metrics {
+	// 🛡️ Sentinel: Prevent DoS via nil pointer dereference on public API boundary.
+	if g == nil {
+		return Metrics{}
+	}
 	return Metrics{
 		Active:          int(g.active.Load()),
 		Queued:          int(g.queued.Load()),

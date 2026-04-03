@@ -226,12 +226,21 @@ func TestFuture_GatekeeperShutdownEscape(t *testing.T) {
 func TestFutureGetNilContext(t *testing.T) {
 	cfg := DefaultConfig()
 	g := New(cfg)
-	go g.Start(context.Background())
+	ctx, cancel := context.WithCancel(context.Background())
+	go g.Start(ctx)
 	defer g.Wait()
+	defer cancel()
 
-	f, _ := SubmitFunc(g, PriorityNormal, func(ctx Context) (string, error) {
+	for !g.started.Load() {
+		runtime.Gosched()
+	}
+
+	f, submitErr := SubmitFunc(g, PriorityNormal, func(ctx Context) (string, error) {
 		return "test", nil
 	})
+	if submitErr != nil {
+		t.Fatalf("SubmitFunc failed: %v", submitErr)
+	}
 
 	_, err := f.Get(nil)
 	if err == nil {
@@ -244,8 +253,14 @@ func TestFutureGetNilContext(t *testing.T) {
 func TestJoinNilContext(t *testing.T) {
 	cfg := DefaultConfig()
 	g := New(cfg)
-	go g.Start(context.Background())
+	ctx, cancel := context.WithCancel(context.Background())
+	go g.Start(ctx)
 	defer g.Wait()
+	defer cancel()
+
+	for !g.started.Load() {
+		runtime.Gosched()
+	}
 
 	f, _ := SubmitFunc(g, PriorityNormal, func(ctx Context) (string, error) {
 		return "test", nil
