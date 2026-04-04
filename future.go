@@ -46,6 +46,10 @@ func (f *Future[T]) closeDone() {
 // will be dropped without execution. Always pass a context with a timeout
 // as an escape hatch to prevent goroutine leaks in the caller.
 func (f *Future[T]) Get(ctx context.Context) (T, error) {
+	if f == nil {
+		var zero T
+		return zero, fmt.Errorf("gatekeeper: cannot call Get on nil Future")
+	}
 	if ctx == nil {
 		var zero T
 		return zero, fmt.Errorf("gatekeeper: cannot use nil context in Future.Get")
