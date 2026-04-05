@@ -1,6 +1,9 @@
 package scheduler
 
-import "errors"
+import (
+	"errors"
+	"fmt"
+)
 
 // ErrGateClosed signals that an operation was attempted after the Gatekeeper shut down.
 var ErrGateClosed = errors.New("gatekeeper is closed")
@@ -28,4 +31,16 @@ type Task interface {
 type Context struct {
 	state   *taskState
 	version uint32
+}
+
+// PanicError is a hard error wrapper for a recovered panic.
+// 🛡️ Sentinel: Preserves the raw panic payload for downstream type assertions
+// instead of coercing it into a formatted string, while handling stack traces separately.
+type PanicError struct {
+	Payload any
+	Stack   []byte
+}
+
+func (p *PanicError) Error() string {
+	return fmt.Sprintf("task panicked: %v", p.Payload)
 }

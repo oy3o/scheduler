@@ -97,7 +97,12 @@ func (c *closureTask[T]) Execute(ctx Context) (err error) {
 	// it to the system-level Config.OnError hook for downstream alerting.
 	defer func() {
 		if p := recover(); p != nil {
-			internalErr := fmt.Errorf("task panicked: %v\n%s", p, debug.Stack())
+			// 🛡️ Sentinel: Handle stack traces separately without mutating the original panic payload.
+			// This ensures internal telemetry can still perform type assertions on the raw panic value.
+			internalErr := &PanicError{
+				Payload: p,
+				Stack:   debug.Stack(),
+			}
 
 			// 🛡️ Sentinel: Sanitize the public error to prevent stack trace leakage.
 			// If the user's panic payload itself contains multiple lines (e.g. they
