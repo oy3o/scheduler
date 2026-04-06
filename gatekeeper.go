@@ -6,6 +6,7 @@ import (
 	"math/rand/v2"
 	"os"
 	"runtime"
+	"runtime/debug"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -433,10 +434,17 @@ func (g *Gatekeeper) runTask(baseCtx context.Context, e *entry, isFastPath bool)
 	func() {
 		defer func() {
 			if r := recover(); r != nil {
+				// 🛡️ Sentinel: Prevent DoS via information disclosure by using PanicError.
+				// It natively separates the raw payload from the stack trace and sanitizes
+				// the public string representation, while preserving internal telemetry.
+				panicErr := &PanicError{
+					Payload: r,
+					Stack:   debug.Stack(),
+				}
 				if g.config.OnPanic != nil {
 					g.config.OnPanic(e.task, r)
 				}
-				taskErr = fmt.Errorf("task panicked: %v", r)
+				taskErr = panicErr
 			}
 		}()
 		taskErr = e.task.Execute(s)
