@@ -1,9 +1,31 @@
 package scheduler
 
-import "errors"
+import (
+	"errors"
+	"fmt"
+	"strings"
+)
 
 // ErrGateClosed signals that an operation was attempted after the Gatekeeper shut down.
 var ErrGateClosed = errors.New("gatekeeper is closed")
+
+// PanicError wraps a recovered panic payload and its stack trace.
+//
+// 🛡️ Sentinel: Prevent DoS via information disclosure by separating the raw payload
+// and stack trace. Its Error method sanitizes the payload to avoid leaking stack traces
+// if the payload itself contains multiple lines (e.g., a re-panicked error).
+type PanicError struct {
+	Payload any
+	Stack   []byte
+}
+
+func (p *PanicError) Error() string {
+	pStr := fmt.Sprintf("%v", p.Payload)
+	if idx := strings.Index(pStr, "\n"); idx != -1 {
+		pStr = pStr[:idx]
+	}
+	return fmt.Sprintf("task panicked: %s", pStr)
+}
 
 // Priority levels for tasks.
 const (
