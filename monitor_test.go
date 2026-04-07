@@ -69,6 +69,32 @@ func TestDetectSaturation_Basic(t *testing.T) {
 	}
 }
 
+func BenchmarkSortedPercentileMut_FracZero(b *testing.B) {
+	data := make([]float64, 4096)
+	for i := range data {
+		data[i] = float64(i)
+	}
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		// p=0.5 exactly on an array of size 4096 gives an exact fractional index when len-1 is odd
+		// Wait, idx = (4096-1)*0.5 = 2047.5, so frac is 0.5.
+		// To hit frac == 0, we need idx to be an integer.
+		// So (len - 1) * p = integer.
+		// If len = 4097, (4097 - 1) * 0.5 = 2048 exactly.
+		// Let's use p=0.5 and len=4097
+
+		// In Go benchmarks, we need to be careful to not mutate the array in a way that breaks subsequent loops
+		// But sortedPercentileMut mutates the array (QuickSelect partitions it).
+		// Since we just want to measure the overhead, we'll re-copy the array.
+		b.StopTimer()
+		testData := make([]float64, 4097)
+		copy(testData, data)
+		b.StartTimer()
+
+		sortedPercentileMut(testData, 0.5)
+	}
+}
+
 func TestDetectSaturation_DecreaseAndPanic(t *testing.T) {
 	cfg := DefaultConfig()
 	cfg.StrictLivelockPanic = false

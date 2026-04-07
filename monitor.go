@@ -154,10 +154,17 @@ func sortedPercentileMut(data []float64, p float64) float64 {
 
 	vLo := quickSelect(data, lo)
 
+	// ⚡ Bolt: Early return for exact index queries to avoid O(N) scan.
+	// When frac is exactly 0, linear interpolation weights vHi at 0%.
+	// We can entirely skip the expensive slices.Min(data[lo+1:]) scan.
+	frac := idx - float64(lo)
+	if frac == 0 {
+		return vLo
+	}
+
 	// vHi is the minimum of elements AFTER lo
 	vHi := slices.Min(data[lo+1:])
 
-	frac := idx - float64(lo)
 	return vLo + frac*(vHi-vLo)
 }
 
