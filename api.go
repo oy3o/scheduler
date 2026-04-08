@@ -1,6 +1,30 @@
 package scheduler
 
-import "errors"
+import (
+	"errors"
+	"fmt"
+	"strings"
+)
+
+// PanicError wraps a recovered panic payload and its stack trace.
+// It securely sanitizes the payload when formatting the public error message
+// to prevent multi-line nested stack traces from leaking to public APIs.
+type PanicError struct {
+	Payload any
+	Stack   []byte
+}
+
+func (p *PanicError) Error() string {
+	pStr := fmt.Sprintf("%v", p.Payload)
+	// 🛡️ Sentinel: Prevent stack trace leakage in public APIs.
+	// We truncate the panic payload at the first occurrence of any standard
+	// line-breaking character to prevent nested stack traces from leaking
+	// via alternate whitespace formats.
+	if idx := strings.IndexAny(pStr, "\n\r\f\v"); idx != -1 {
+		pStr = pStr[:idx]
+	}
+	return fmt.Sprintf("task panicked: %s", pStr)
+}
 
 // ErrGateClosed signals that an operation was attempted after the Gatekeeper shut down.
 var ErrGateClosed = errors.New("gatekeeper is closed")

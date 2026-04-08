@@ -97,19 +97,14 @@ func (c *closureTask[T]) Execute(ctx Context) (err error) {
 	// it to the system-level Config.OnError hook for downstream alerting.
 	defer func() {
 		if p := recover(); p != nil {
-			internalErr := fmt.Errorf("task panicked: %v\n%s", p, debug.Stack())
+			internalErr := &PanicError{
+				Payload: p,
+				Stack:   debug.Stack(),
+			}
 
 			// 🛡️ Sentinel: Sanitize the public error to prevent stack trace leakage.
-			// If the user's panic payload itself contains multiple lines (e.g. they
-			// re-panicked an error with a stack trace), we strip everything after
-			// the first line to keep the Future API clean.
-			pStr := fmt.Sprintf("%v", p)
-			if idx := strings.Index(pStr, "\n"); idx != -1 {
-				pStr = pStr[:idx]
-			}
-			publicErr := fmt.Errorf("task panicked: %s", pStr)
-
-			c.future.err.CompareAndSwap(nil, publicErr)
+			// The PanicError.Error() method handles the truncation securely.
+			c.future.err.CompareAndSwap(nil, internalErr)
 			err = internalErr // Let the Gatekeeper bleed. Do not swallow.
 		}
 	}()

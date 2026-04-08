@@ -85,6 +85,38 @@ func TestFuture_PanicIsolation(t *testing.T) {
 	}
 }
 
+func TestFuture_PanicSanitization(t *testing.T) {
+	g := New(DefaultConfig())
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	go g.Start(ctx)
+	for !g.started.Load() {
+		runtime.Gosched()
+	}
+
+	// Submit a task that panics with alternate line breaks
+	f, err := SubmitFunc(g, 10, func(c Context) (int, error) {
+		panic("line1\r\nline2")
+	})
+	if err != nil {
+		t.Fatalf("SubmitFunc failed: %v", err)
+	}
+
+	_, getErr := f.Get(context.Background())
+	if getErr == nil {
+		t.Fatal("Expected an error from panicked task, got nil")
+	}
+
+	errMsg := getErr.Error()
+	if !strings.Contains(errMsg, "line1") {
+		t.Errorf("Expected error to contain first line of panic payload, got: %v", getErr)
+	}
+	if strings.Contains(errMsg, "line2") {
+		t.Errorf("Expected error to be truncated at carriage return, got: %v", getErr)
+	}
+}
+
 func TestFuture_Join(t *testing.T) {
 	g := New(DefaultConfig())
 	ctx, cancel := context.WithCancel(context.Background())
