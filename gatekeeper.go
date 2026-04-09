@@ -6,6 +6,7 @@ import (
 	"math/rand/v2"
 	"os"
 	"runtime"
+	"runtime/debug"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -436,7 +437,8 @@ func (g *Gatekeeper) runTask(baseCtx context.Context, e *entry, isFastPath bool)
 				if g.config.OnPanic != nil {
 					g.config.OnPanic(e.task, r)
 				}
-				taskErr = fmt.Errorf("task panicked: %v", r)
+				// 🛡️ Sentinel: Wrap in PanicError for sanitized public Error() but full %+v trace
+				taskErr = &PanicError{Payload: r, Stack: debug.Stack()}
 			}
 		}()
 		taskErr = e.task.Execute(s)

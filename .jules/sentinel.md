@@ -10,3 +10,8 @@
 **Vulnerability:** Information disclosure via multiline panic payloads in the Future API.
 **Learning:** Even when separating internal and public errors, the raw panic payload 'p' can contain a stack trace if an error with a trace is re-panicked.
 **Prevention:** Always sanitize panic payloads for public-facing errors by truncating them at the first newline or stripping known stack trace keywords.
+
+## 2024-05-24 - [Fix Stack Trace Leakage and Type Assertion Breakage in Error Telemetry]
+**Vulnerability:** The `Gatekeeper.OnPanic` telemetry hook received raw `recover()` payloads that were either wrapped in strings (losing type info) or lacked full stack trace context. Public-facing error handlers (like Future's `Execute`) were returning error strings containing stack traces when complex payloads were re-panicked.
+**Learning:** Returning a raw panic payload wrapped in `fmt.Errorf` breaks downstream type assertions and doesn't explicitly separate the public message from internal telemetry. Using a dedicated struct `PanicError` allows separating the sanitized string representation (via `Error()`) from internal logging (via `%+v` in `Format()`) while preserving the underlying type via `Unwrap()`.
+**Prevention:** In libraries with internal background loops, catch panics at the boundary and wrap them in a custom struct (e.g., `PanicError`) that holds the raw payload and stack trace separately. Implement `Error()` to return a sanitized, truncated string to callers, `Format()` for detailed internal logging, and `Unwrap()` to preserve access to the raw payload type.
