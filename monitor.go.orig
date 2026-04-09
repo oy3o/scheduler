@@ -155,8 +155,6 @@ func sortedPercentileMut(data []float64, p float64) float64 {
 	vLo := quickSelect(data, lo)
 
 	frac := idx - float64(lo)
-	// ⚡ Bolt Optimization: Early return when fraction is 0.
-	// Avoids an O(N) scan using slices.Min when the percentile falls exactly on an index.
 	if frac == 0 {
 		return vLo
 	}
