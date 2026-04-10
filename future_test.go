@@ -258,3 +258,28 @@ func TestJoinNilContext(t *testing.T) {
 		t.Errorf("unexpected error: %v", err)
 	}
 }
+
+func TestFuture_PanicLeakAlternateWhitespace(t *testing.T) {
+	g := New(DefaultConfig())
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	go g.Start(ctx)
+	for !g.started.Load() {
+		runtime.Gosched()
+	}
+
+	f, err := SubmitFunc(g, 10, func(c Context) (int, error) {
+		panic("bloody sincerity\r/path/to/secret.go:42")
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = f.Get(context.Background())
+	if err != nil {
+		if strings.Contains(err.Error(), "/path/to/secret.go") {
+			t.Fatalf("Leaked stack trace! %v", err)
+		}
+	}
+}
