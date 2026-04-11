@@ -146,6 +146,14 @@ func sortedPercentileMut(data []float64, p float64) float64 {
 
 	idx := float64(len(data)-1) * p
 	lo := int(idx)
+
+	// ⚡ Bolt: Early return if the requested percentile lands exactly on an index.
+	// This skips the expensive O(N) adjacent-element lookup (`slices.Min(data[lo+1:])`)
+	// when the fractional weight is zero and would have discarded the value anyway.
+	if float64(lo) == idx {
+		return quickSelect(data, lo)
+	}
+
 	hi := lo + 1
 
 	if hi >= len(data) {
