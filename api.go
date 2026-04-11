@@ -1,6 +1,11 @@
 package scheduler
 
-import "errors"
+import (
+	"errors"
+	"fmt"
+	"io"
+	"strings"
+)
 
 // ErrGateClosed signals that an operation was attempted after the Gatekeeper shut down.
 var ErrGateClosed = errors.New("gatekeeper is closed")
@@ -28,4 +33,42 @@ type Task interface {
 type Context struct {
 	state   *taskState
 	version uint32
+}
+
+// PanicError wraps a recovered panic payload and its stack trace.
+// It implements custom error formatting to sanitize public output
+// while preserving full details for internal telemetry.
+type PanicError struct {
+	Payload any
+	Stack   []byte
+}
+
+func (e *PanicError) Error() string {
+	pStr := fmt.Sprintf("%v", e.Payload)
+	if idx := strings.IndexAny(pStr, "\n\r\f\v"); idx != -1 {
+		pStr = pStr[:idx]
+	}
+	return fmt.Sprintf("task panicked: %s", pStr)
+}
+
+func (e *PanicError) Format(s fmt.State, verb rune) {
+	switch verb {
+	case 'v':
+		if s.Flag('+') {
+			fmt.Fprintf(s, "task panicked: %v\n%s", e.Payload, e.Stack)
+			return
+		}
+		fallthrough
+	case 's':
+		io.WriteString(s, e.Error())
+	case 'q':
+		fmt.Fprintf(s, "%q", e.Error())
+	}
+}
+
+func (e *PanicError) Unwrap() error {
+	if err, ok := e.Payload.(error); ok {
+		return err
+	}
+	return nil
 }

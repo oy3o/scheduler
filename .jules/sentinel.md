@@ -10,3 +10,8 @@
 **Vulnerability:** Information disclosure via multiline panic payloads in the Future API.
 **Learning:** Even when separating internal and public errors, the raw panic payload 'p' can contain a stack trace if an error with a trace is re-panicked.
 **Prevention:** Always sanitize panic payloads for public-facing errors by truncating them at the first newline or stripping known stack trace keywords.
+
+## 2024-04-12 - [Fix Stack Trace Leakage in Panic Recovery]
+**Vulnerability:** Information disclosure via unhandled/unsanitized panic payloads in the task execution engine (`gatekeeper.go`). Recovered panics were directly formatted into string errors along with the stack trace and passed to the public `OnError` callback, leaking sensitive internal context.
+**Learning:** Raw recovered panic values should never be treated as safe string output for public APIs. Even simple formatting can expose internals. The requirement to preserve stack traces for telemetry conflicts with the requirement to hide them from users.
+**Prevention:** Implement a custom `PanicError` struct with `fmt.Formatter` support. This allows the error to return a sanitized, simple message via `.Error()` while retaining the full raw payload and stack trace for internal telemetry handlers that format with `%+v`.

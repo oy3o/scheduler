@@ -80,7 +80,7 @@ type panicTask struct {
 func (t *panicTask) Priority() int { return t.priority }
 func (t *panicTask) Execute(_ Context) error {
 	defer close(t.done)
-	panic("intentional chaos")
+	panic("intentional chaos\n goroutine 1 [running]:\n debug.Stack()\n")
 }
 
 // --- Tests ---
