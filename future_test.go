@@ -83,6 +83,25 @@ func TestFuture_PanicIsolation(t *testing.T) {
 	if strings.Contains(getErr.Error(), "goroutine") || strings.Contains(getErr.Error(), "debug.Stack") {
 		t.Errorf("Expected sanitized error without stack trace, got: %v", getErr)
 	}
+
+	// Submit another task with alternate whitespace in panic
+	f2, err := SubmitFunc(g, 10, func(c Context) (int, error) {
+		panic("sneaky panic\r\ngoroutine 123: debug.Stack()")
+	})
+	if err != nil {
+		t.Fatalf("SubmitFunc failed: %v", err)
+	}
+
+	_, getErr2 := f2.Get(context.Background())
+	if getErr2 == nil {
+		t.Fatal("Expected an error from panicked task, got nil")
+	}
+	if !strings.Contains(getErr2.Error(), "sneaky panic") {
+		t.Errorf("Expected error to contain panic payload, got: %v", getErr2)
+	}
+	if strings.Contains(getErr2.Error(), "goroutine") || strings.Contains(getErr2.Error(), "debug.Stack") {
+		t.Errorf("Expected sanitized error without stack trace despite carriage return, got: %v", getErr2)
+	}
 }
 
 func TestFuture_Join(t *testing.T) {
