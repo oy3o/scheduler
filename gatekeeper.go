@@ -6,6 +6,8 @@ import (
 	"math/rand/v2"
 	"os"
 	"runtime"
+	"runtime/debug"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -436,7 +438,8 @@ func (g *Gatekeeper) runTask(baseCtx context.Context, e *entry, isFastPath bool)
 				if g.config.OnPanic != nil {
 					g.config.OnPanic(e.task, r)
 				}
-				taskErr = fmt.Errorf("task panicked: %v", r)
+				// 🛡️ Sentinel: Prevent information disclosure while preserving telemetry
+				taskErr = &PanicError{Payload: r, Stack: debug.Stack()}
 			}
 		}()
 		taskErr = e.task.Execute(s)
@@ -704,3 +707,40 @@ func (g *Gatekeeper) rootCtxDone() <-chan struct{} {
 // Static Alignment Guards: Ensure no panic if we use these in arrays.
 // These are rough checks; exact cacheLineSize alignment is enforced inside structs.
 var _ = [1]struct{}{}[unsafe.Sizeof(Gatekeeper{})%8]
+
+// 🛡️ Sentinel: Prevent information disclosure while preserving internal telemetry.
+// PanicError safely wraps a panic payload and its stack trace.
+type PanicError struct {
+	Payload any
+	Stack   []byte
+}
+
+func (p *PanicError) Error() string {
+	pStr := fmt.Sprintf("%v", p.Payload)
+	if idx := strings.IndexAny(pStr, "\n\r\f\v"); idx != -1 {
+		pStr = pStr[:idx]
+	}
+	return fmt.Sprintf("task panicked: %s", pStr)
+}
+
+func (p *PanicError) Format(f fmt.State, verb rune) {
+	switch verb {
+	case 'v':
+		if f.Flag('+') {
+			fmt.Fprintf(f, "task panicked: %v\n%s", p.Payload, p.Stack)
+			return
+		}
+		fallthrough
+	case 's':
+		fmt.Fprint(f, p.Error())
+	case 'q':
+		fmt.Fprintf(f, "%q", p.Error())
+	}
+}
+
+func (p *PanicError) Unwrap() error {
+	if err, ok := p.Payload.(error); ok {
+		return err
+	}
+	return nil
+}

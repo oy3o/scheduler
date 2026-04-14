@@ -10,3 +10,8 @@
 **Vulnerability:** Information disclosure via multiline panic payloads in the Future API.
 **Learning:** Even when separating internal and public errors, the raw panic payload 'p' can contain a stack trace if an error with a trace is re-panicked.
 **Prevention:** Always sanitize panic payloads for public-facing errors by truncating them at the first newline or stripping known stack trace keywords.
+
+## 2024-05-15 - Exposure of Debug Stack Trace in Gatekeeper OnError Telemetry
+**Vulnerability:** Information disclosure via raw panic payload passed to public `OnError` hooks.
+**Learning:** The gatekeeper caught internal panics from tasks but propagated the raw, unsanitized panic payload directly to the `OnError` hook, which is meant for public, sanitized errors. This leaked internal stack traces and other potentially sensitive telemetry.
+**Prevention:** Use a structured wrapper like `PanicError` that isolates the stack trace and implements `Error()` to return a properly sanitized string (using `strings.IndexAny("\n\r\f\v")`). Expose the internal details only through the `Format()` method for `%+v` logging to ensure public error boundaries are maintained.
