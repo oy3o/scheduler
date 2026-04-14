@@ -436,3 +436,35 @@ func TestGatekeeperStartNilContext(t *testing.T) {
 		t.Errorf("unexpected error: %v", err)
 	}
 }
+
+func TestGatekeeper_PanicLeak(t *testing.T) {
+	var leakedErr error
+	cfg := DefaultConfig()
+	cfg.OnError = func(task Task, err error) {
+		leakedErr = err
+	}
+	g := New(cfg)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go g.Start(ctx)
+	for !g.started.Load() {
+		runtime.Gosched()
+	}
+
+	f, _ := SubmitVoid(g, 10, func(c Context) error {
+		panic("test panic\rgoroutine_1 [running]:\n")
+	})
+
+	f.Get(context.Background())
+	time.Sleep(100 * time.Millisecond)
+
+	if leakedErr != nil {
+		if strings.Contains(leakedErr.Error(), "goroutine") {
+			t.Errorf("Leaked stack trace! %v", leakedErr)
+		} else {
+			t.Logf("Sanitized properly: %v", leakedErr)
+		}
+	} else {
+		t.Logf("No error caught in OnError")
+	}
+}

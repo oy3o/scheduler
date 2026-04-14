@@ -258,3 +258,26 @@ func TestJoinNilContext(t *testing.T) {
 		t.Errorf("unexpected error: %v", err)
 	}
 }
+
+func TestFuture_PanicSanitization(t *testing.T) {
+	g := New(DefaultConfig())
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	go g.Start(ctx)
+	for !g.started.Load() {
+		runtime.Gosched()
+	}
+
+	f, _ := SubmitVoid(g, 10, func(c Context) error {
+		panic("error msg\rgoroutine 1 [running]:\nmain.main()")
+	})
+
+	_, err := f.Get(context.Background())
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if strings.Contains(err.Error(), "goroutine") {
+		t.Errorf("Stack trace leaked! %v", err)
+	}
+}
