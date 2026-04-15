@@ -10,3 +10,8 @@
 **Vulnerability:** Information disclosure via multiline panic payloads in the Future API.
 **Learning:** Even when separating internal and public errors, the raw panic payload 'p' can contain a stack trace if an error with a trace is re-panicked.
 **Prevention:** Always sanitize panic payloads for public-facing errors by truncating them at the first newline or stripping known stack trace keywords.
+
+## 2025-05-15 - Exposure of Debug Stack Trace via Panic Err Wrapping
+**Vulnerability:** Information disclosure via un-sanitized panic payload wrapping in `gatekeeper.go`. The raw panic was being caught and wrapped simply with `fmt.Errorf("task panicked: %v", r)`, which would leak multiline stack traces if the user payload was an error containing a stack trace.
+**Learning:** Even when errors are returned from internal scheduling, they might bubble up or be handled by upstream hooks. An attacker could intentionally panic with a multiline error/stack trace and force the system to leak that to callers who inspect the internal system errors.
+**Prevention:** Always separate public-facing error states from internal telemetry for panics handled by internal schedulers. Use a struct (like `PanicError`) that holds the sanitised string via `Error()` but retains internal debug via formatting methods for system hooks.
