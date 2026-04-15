@@ -154,10 +154,16 @@ func sortedPercentileMut(data []float64, p float64) float64 {
 
 	vLo := quickSelect(data, lo)
 
+	frac := idx - float64(lo)
+	if frac == 0 {
+		// ⚡ Bolt: Early return when interpolation fraction is zero.
+		// Avoids an expensive O(N) slices.Min scan for adjacent elements.
+		return vLo
+	}
+
 	// vHi is the minimum of elements AFTER lo
 	vHi := slices.Min(data[lo+1:])
 
-	frac := idx - float64(lo)
 	return vLo + frac*(vHi-vLo)
 }
 
