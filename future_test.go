@@ -85,6 +85,39 @@ func TestFuture_PanicIsolation(t *testing.T) {
 	}
 }
 
+func TestFuture_PanicIsolation_AlternateWhitespace(t *testing.T) {
+	g := New(DefaultConfig())
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	go g.Start(ctx)
+	for !g.started.Load() {
+		runtime.Gosched()
+	}
+
+	// Submit a task that intentionally panics with \r and stack trace keywords
+	f, err := SubmitFunc(g, 10, func(c Context) (int, error) {
+		panic("sneaky panic\r goroutine 1:\r debug.Stack()")
+	})
+	if err != nil {
+		t.Fatalf("SubmitFunc failed: %v", err)
+	}
+
+	// The panic should be caught and returned as an error, NOT crash the test
+	_, getErr := f.Get(context.Background())
+	if getErr == nil {
+		t.Fatal("Expected an error from panicked task, got nil")
+	}
+
+	// Verify that stack trace is NOT leaked in the public Future API
+	if strings.Contains(getErr.Error(), "goroutine") || strings.Contains(getErr.Error(), "debug.Stack") {
+		t.Errorf("Expected sanitized error without stack trace, got: %v", getErr)
+	}
+	if !strings.Contains(getErr.Error(), "sneaky panic") {
+		t.Errorf("Expected error to contain the first part of the panic payload, got: %v", getErr)
+	}
+}
+
 func TestFuture_Join(t *testing.T) {
 	g := New(DefaultConfig())
 	ctx, cancel := context.WithCancel(context.Background())
