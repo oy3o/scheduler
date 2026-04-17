@@ -148,6 +148,15 @@ func sortedPercentileMut(data []float64, p float64) float64 {
 	lo := int(idx)
 	hi := lo + 1
 
+	frac := idx - float64(lo)
+
+	// Performance optimization: If the requested percentile lands exactly on an index,
+	// the fractional component is 0. We can safely return the value at `lo` immediately,
+	// bypassing the expensive O(N) `slices.Min` scan on the remainder of the array.
+	if frac == 0 {
+		return quickSelect(data, lo)
+	}
+
 	if hi >= len(data) {
 		return quickSelect(data, lo)
 	}
@@ -157,7 +166,6 @@ func sortedPercentileMut(data []float64, p float64) float64 {
 	// vHi is the minimum of elements AFTER lo
 	vHi := slices.Min(data[lo+1:])
 
-	frac := idx - float64(lo)
 	return vLo + frac*(vHi-vLo)
 }
 
