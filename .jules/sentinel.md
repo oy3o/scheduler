@@ -10,3 +10,7 @@
 **Vulnerability:** Information disclosure via multiline panic payloads in the Future API.
 **Learning:** Even when separating internal and public errors, the raw panic payload 'p' can contain a stack trace if an error with a trace is re-panicked.
 **Prevention:** Always sanitize panic payloads for public-facing errors by truncating them at the first newline or stripping known stack trace keywords.
+## 2025-05-15 - Exposure of Debug Stack Trace in Future API
+**Vulnerability:** Information disclosure via multiline panic payloads and log spoofing via alternate whitespace characters.
+**Learning:** Even when separating internal and public errors, the raw panic payload 'p' can contain a stack trace if an error with a trace is re-panicked. Furthermore, carriage returns (`\r`) can be used to overwrite logs in a console.
+**Prevention:** Always sanitize panic payloads for public-facing errors by truncating them at the first occurrence of any standard line-breaking character (`\n`, `\r`, `\f`, `\v`) using `strings.IndexAny`. In addition, create a specific wrapper type like `PanicError` that cleanly separates public and internal telemetry data formatting.

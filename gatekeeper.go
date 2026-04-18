@@ -6,6 +6,8 @@ import (
 	"math/rand/v2"
 	"os"
 	"runtime"
+	"runtime/debug"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -13,6 +15,41 @@ import (
 )
 
 var epoch = time.Now()
+
+// PanicError wraps a caught panic, ensuring the stack trace is preserved for internal
+// telemetry (%+v) while exposing a safely sanitized message for public APIs.
+type PanicError struct {
+	Payload any
+	Stack   []byte
+}
+
+func (p *PanicError) Error() string {
+	pStr := fmt.Sprintf("%v", p.Payload)
+	if idx := strings.IndexAny(pStr, "\n\r\f\v"); idx != -1 {
+		pStr = pStr[:idx]
+	}
+	return fmt.Sprintf("task panicked: %s", pStr)
+}
+
+func (p *PanicError) Format(f fmt.State, verb rune) {
+	switch verb {
+	case 'v':
+		if f.Flag('+') {
+			fmt.Fprintf(f, "task panicked: %v\n%s", p.Payload, p.Stack)
+			return
+		}
+		fallthrough
+	default:
+		fmt.Fprint(f, p.Error())
+	}
+}
+
+func (p *PanicError) Unwrap() error {
+	if err, ok := p.Payload.(error); ok {
+		return err
+	}
+	return nil
+}
 
 // NowNano returns strictly monotonic nanoseconds since epoch.
 func NowNano() int64 {
@@ -436,7 +473,10 @@ func (g *Gatekeeper) runTask(baseCtx context.Context, e *entry, isFastPath bool)
 				if g.config.OnPanic != nil {
 					g.config.OnPanic(e.task, r)
 				}
-				taskErr = fmt.Errorf("task panicked: %v", r)
+				taskErr = &PanicError{
+					Payload: r,
+					Stack:   debug.Stack(),
+				}
 			}
 		}()
 		taskErr = e.task.Execute(s)
