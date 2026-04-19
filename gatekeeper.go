@@ -6,11 +6,48 @@ import (
 	"math/rand/v2"
 	"os"
 	"runtime"
+	"runtime/debug"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 	"unsafe"
 )
+
+// PanicError wraps a raw panic payload and its stack trace, preserving internal telemetry.
+// It implements the error interface, sanitizing the payload for public API usage while
+// exposing the full stack trace for internal logging via formatting verbs like %+v.
+type PanicError struct {
+	Payload any
+	Stack   []byte
+}
+
+// Error implements the error interface, sanitizing the public payload.
+func (p *PanicError) Error() string {
+	pStr := fmt.Sprintf("%v", p.Payload)
+	// 🛡️ Sentinel: Prevent DoS and trace leakage via multiline payload sanitization
+	if idx := strings.IndexAny(pStr, "\n\r\f\v"); idx != -1 {
+		pStr = pStr[:idx]
+	}
+	return fmt.Sprintf("task panicked: %s", pStr)
+}
+
+// Format implements fmt.Formatter to expose the full stack trace for internal logging.
+func (p *PanicError) Format(f fmt.State, verb rune) {
+	if verb == 'v' && f.Flag('+') {
+		fmt.Fprintf(f, "task panicked: %v\n%s", p.Payload, p.Stack)
+		return
+	}
+	fmt.Fprint(f, p.Error())
+}
+
+// Unwrap allows extracting the original error if the payload was an error.
+func (p *PanicError) Unwrap() error {
+	if err, ok := p.Payload.(error); ok {
+		return err
+	}
+	return nil
+}
 
 var epoch = time.Now()
 
@@ -436,7 +473,10 @@ func (g *Gatekeeper) runTask(baseCtx context.Context, e *entry, isFastPath bool)
 				if g.config.OnPanic != nil {
 					g.config.OnPanic(e.task, r)
 				}
-				taskErr = fmt.Errorf("task panicked: %v", r)
+					taskErr = &PanicError{
+						Payload: r,
+						Stack:   debug.Stack(),
+					}
 			}
 		}()
 		taskErr = e.task.Execute(s)
