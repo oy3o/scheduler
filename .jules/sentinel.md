@@ -10,3 +10,8 @@
 **Vulnerability:** Information disclosure via multiline panic payloads in the Future API.
 **Learning:** Even when separating internal and public errors, the raw panic payload 'p' can contain a stack trace if an error with a trace is re-panicked.
 **Prevention:** Always sanitize panic payloads for public-facing errors by truncating them at the first newline or stripping known stack trace keywords.
+
+## 2025-05-15 - Exposure of Debug Stack Trace in Internal Errors via Alternate Line Breaks
+**Vulnerability:** Information disclosure via multiline panic payloads containing alternate line breaks (`\r`, `\f`, `\v`). `future.go` only truncated strings at `\n`, allowing leakages of stack trace strings maliciously appended via carriage returns. Furthermore, `gatekeeper.go` was vulnerable to similar issues as it just formatted the raw panic value `r` directly into a string.
+**Learning:** String sanitization functions must account for ALL forms of line breaks (like `\r`, `\f`, `\v`) when attempting to prevent multi-line injection or trace leakage. Also, wrapping panics with `fmt.Errorf` directly in system loops mutates the raw error, destroying internal telemetry options (which required `PanicError` to resolve properly).
+**Prevention:** Always use `strings.IndexAny(s, "\n\r\f\v")` instead of `strings.Index(s, "\n")` for single-line error sanitization. When needing to retain complete internal state without exposing it, use custom struct wrappers (like `PanicError`) implementing the error interface with `Error()` for sanitization and `Format()` for internal details, rather than basic string interpolation.
