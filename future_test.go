@@ -85,6 +85,38 @@ func TestFuture_PanicIsolation(t *testing.T) {
 	}
 }
 
+func TestFuture_PanicIsolation_AlternateWhitespace(t *testing.T) {
+	g := New(DefaultConfig())
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	go g.Start(ctx)
+	for !g.started.Load() {
+		runtime.Gosched()
+	}
+
+	// Submit a task that intentionally panics using \r instead of \n to try and leak the stack
+	f, err := SubmitFunc(g, 10, func(c Context) (int, error) {
+		panic("bloody sincerity\rgoroutine 1 [running]:\rdebug.Stack()")
+	})
+	if err != nil {
+		t.Fatalf("SubmitFunc failed: %v", err)
+	}
+
+	_, getErr := f.Get(context.Background())
+	if getErr == nil {
+		t.Fatal("Expected an error from panicked task, got nil")
+	}
+	if !strings.Contains(getErr.Error(), "bloody sincerity") {
+		t.Errorf("Expected error to contain panic payload, got: %v", getErr)
+	}
+
+	// Verify that stack trace is NOT leaked in the public Future API even with alternate whitespace
+	if strings.Contains(getErr.Error(), "goroutine") || strings.Contains(getErr.Error(), "debug.Stack") {
+		t.Errorf("Expected sanitized error without stack trace, got: %v", getErr)
+	}
+}
+
 func TestFuture_Join(t *testing.T) {
 	g := New(DefaultConfig())
 	ctx, cancel := context.WithCancel(context.Background())
