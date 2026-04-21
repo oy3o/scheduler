@@ -11,7 +11,7 @@ type mockTask struct {
 	priority int
 }
 
-func (m *mockTask) Priority() int { return m.priority }
+func (m *mockTask) Priority() int             { return m.priority }
 func (m *mockTask) Execute(ctx Context) error { return nil }
 
 func TestAcquireReleaseEntry(t *testing.T) {

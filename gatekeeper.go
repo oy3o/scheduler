@@ -6,6 +6,8 @@ import (
 	"math/rand/v2"
 	"os"
 	"runtime"
+	"runtime/debug"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -17,6 +19,45 @@ var epoch = time.Now()
 // NowNano returns strictly monotonic nanoseconds since epoch.
 func NowNano() int64 {
 	return int64(time.Since(epoch))
+}
+
+// PanicError wraps a raw panic payload to preserve full telemetry for
+// internal logs while sanitizing the message for public API exposure.
+// 🛡️ Sentinel: Prevent sensitive data/stack trace leakage via public error hooks.
+type PanicError struct {
+	Payload any
+	Stack   []byte
+}
+
+func (p *PanicError) Error() string {
+	pStr := fmt.Sprintf("%v", p.Payload)
+	// 🛡️ Sentinel: Prevent DoS and log spoofing via alternate vertical whitespace (\r, \f, \v)
+	if idx := strings.IndexAny(pStr, "\n\r\f\v"); idx != -1 {
+		pStr = pStr[:idx]
+	}
+	return fmt.Sprintf("task panicked: %s", pStr)
+}
+
+func (p *PanicError) Format(f fmt.State, verb rune) {
+	switch verb {
+	case 'v':
+		if f.Flag('+') {
+			fmt.Fprintf(f, "task panicked: %v\n%s", p.Payload, p.Stack)
+			return
+		}
+		fallthrough
+	case 's':
+		fmt.Fprint(f, p.Error())
+	case 'q':
+		fmt.Fprintf(f, "%q", p.Error())
+	}
+}
+
+func (p *PanicError) Unwrap() error {
+	if err, ok := p.Payload.(error); ok {
+		return err
+	}
+	return nil
 }
 
 const (
@@ -436,7 +477,12 @@ func (g *Gatekeeper) runTask(baseCtx context.Context, e *entry, isFastPath bool)
 				if g.config.OnPanic != nil {
 					g.config.OnPanic(e.task, r)
 				}
-				taskErr = fmt.Errorf("task panicked: %v", r)
+				// 🛡️ Sentinel: Do not leak raw panic contents (which may contain
+				// un-sanitized multiline stack traces) directly into OnError hooks.
+				taskErr = &PanicError{
+					Payload: r,
+					Stack:   debug.Stack(),
+				}
 			}
 		}()
 		taskErr = e.task.Execute(s)
