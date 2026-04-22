@@ -18,3 +18,7 @@
 ## 2025-05-14 - Loop Fusion and Delayed Resource Allocation in Join
 **Learning:** Merging redundant iterations over the same slice (Loop Fusion), such as combining validation checks and non-blocking 'fast-fail' pre-checks, reduces iteration overhead and improves instruction cache locality. Furthermore, delaying `context.WithCancel` and slice allocations until after these initial O(N) checks avoids unnecessary overhead in common early-failure scenarios.
 **Action:** Always combine validation loops with Phase 1 state checks in coordination functions like `Join`. Defer heavy object creation (contexts, result slices) until the fast-fail phase has passed successfully.
+
+## 2025-05-15 - Skipping Adjacent-Element Lookups in Interpolation
+**Learning:** When calculating values via linear interpolation (like percentiles), computing the fractional weight and immediately checking if it is exactly zero is crucial. If the fraction is zero (meaning the desired percentile lands precisely on an existing index), skipping the lookup for the adjacent element prevents unnecessary overhead. In the case of `sortedPercentileMut` where the input is partially sorted, looking up the next element required an O(N) slice scan (`slices.Min(data[lo+1:])`).
+**Action:** When interpolating indices or percentiles, compute the fractional remainder early and implement early returns `if frac == 0 { return currentElement }` to avoid expensive subsequent array lookups.
