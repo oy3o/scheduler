@@ -103,8 +103,11 @@ func (c *closureTask[T]) Execute(ctx Context) (err error) {
 			// If the user's panic payload itself contains multiple lines (e.g. they
 			// re-panicked an error with a stack trace), we strip everything after
 			// the first line to keep the Future API clean.
+			// 🛡️ Sentinel: Prevent DoS via log spoofing and stack trace leakage by
+			// truncating at any standard line-breaking character (\n, \r, \f, \v),
+			// not just \n.
 			pStr := fmt.Sprintf("%v", p)
-			if idx := strings.Index(pStr, "\n"); idx != -1 {
+			if idx := strings.IndexAny(pStr, "\n\r\f\v"); idx != -1 {
 				pStr = pStr[:idx]
 			}
 			publicErr := fmt.Errorf("task panicked: %s", pStr)
