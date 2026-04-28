@@ -258,3 +258,35 @@ func TestJoinNilContext(t *testing.T) {
 		t.Errorf("unexpected error: %v", err)
 	}
 }
+
+func TestFuture_PanicIsolation_MultilineSpoof(t *testing.T) {
+	g := New(DefaultConfig())
+	ctx, cancel := context.WithCancel(context.Background())
+
+	defer g.Wait()
+	defer cancel() // Cancel happens before wait
+
+	go g.Start(ctx)
+	for !g.started.Load() {
+		runtime.Gosched()
+	}
+
+	// Submit a task that intentionally panics with carriage returns / form feeds
+	f, err := SubmitFunc(g, 10, func(c Context) (int, error) {
+		panic("bloody sincerity\r\nthis is a fake stack trace\r\ngoroutine 1 [running]:\r\n")
+	})
+	if err != nil {
+		t.Fatalf("SubmitFunc failed: %v", err)
+	}
+
+	// The panic should be caught and returned as an error, NOT crash the test
+	_, getErr := f.Get(context.Background())
+	if getErr == nil {
+		t.Fatal("Expected an error from panicked task, got nil")
+	}
+
+	// Verify that the alternative whitespace was truncated
+	if strings.Contains(getErr.Error(), "goroutine") || strings.Contains(getErr.Error(), "fake stack trace") {
+		t.Errorf("Expected sanitized error without spoofed stack trace, got: %v", getErr)
+	}
+}
