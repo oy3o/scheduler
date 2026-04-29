@@ -258,3 +258,35 @@ func TestJoinNilContext(t *testing.T) {
 		t.Errorf("unexpected error: %v", err)
 	}
 }
+
+func TestFuture_PanicSanitization(t *testing.T) {
+	g := New(DefaultConfig())
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	go g.Start(ctx)
+	for !g.started.Load() {
+		runtime.Gosched()
+	}
+
+	// Test alternate whitespace characters
+	f, err := SubmitFunc(g, 10, func(c Context) (string, error) {
+		panic("leak\rsecret")
+	})
+	if err != nil {
+		t.Fatalf("Failed to submit: %v", err)
+	}
+
+	_, fErr := f.Get(context.Background())
+	if fErr == nil {
+		t.Fatalf("Expected error, got nil")
+	}
+
+	errStr := fErr.Error()
+	if strings.Contains(errStr, "secret") {
+		t.Errorf("Error should not contain 'secret', got: %v", errStr)
+	}
+	if !strings.Contains(errStr, "leak") {
+		t.Errorf("Error should contain 'leak', got: %v", errStr)
+	}
+}
