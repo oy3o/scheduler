@@ -258,3 +258,36 @@ func TestJoinNilContext(t *testing.T) {
 		t.Errorf("unexpected error: %v", err)
 	}
 }
+
+func TestFuture_SanitizeAlternateWhitespacePanic(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+
+	g := New(Config{})
+	defer g.Wait()
+	defer cancel()
+	go g.Start(ctx)
+	for !g.started.Load() {
+		runtime.Gosched()
+	}
+
+	// Submit a task that intentionally panics with alternate vertical whitespace
+	f, err := SubmitFunc(g, 10, func(c Context) (int, error) {
+		panic("bloody\rsincerity\vtest")
+	})
+	if err != nil {
+		t.Fatalf("SubmitFunc failed: %v", err)
+	}
+
+	_, getErr := f.Get(context.Background())
+	if getErr == nil {
+		t.Fatal("Expected an error from panicked task, got nil")
+	}
+
+	if !strings.Contains(getErr.Error(), "bloody") {
+		t.Errorf("Expected error to contain first part of panic payload, got: %v", getErr)
+	}
+
+	if strings.Contains(getErr.Error(), "sincerity") || strings.Contains(getErr.Error(), "test") {
+		t.Errorf("Expected sanitized error without alternate whitespace leakage, got: %v", getErr)
+	}
+}
