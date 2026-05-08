@@ -258,3 +258,36 @@ func TestJoinNilContext(t *testing.T) {
 		t.Errorf("unexpected error: %v", err)
 	}
 }
+
+func TestFuture_PanicIsolationWhitespace(t *testing.T) {
+	g := New(DefaultConfig())
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	go g.Start(ctx)
+	for !g.started.Load() {
+		runtime.Gosched()
+	}
+
+	// Submit a task that intentionally panics with multiline payload
+	f, err := SubmitFunc(g, 10, func(c Context) (int, error) {
+		panic("multiline\rstack\rtrace")
+	})
+	if err != nil {
+		t.Fatalf("SubmitFunc failed: %v", err)
+	}
+
+	// The panic should be caught and returned as an error, NOT crash the test
+	_, getErr := f.Get(context.Background())
+	if getErr == nil {
+		t.Fatal("Expected an error from panicked task, got nil")
+	}
+	if !strings.Contains(getErr.Error(), "multiline") {
+		t.Errorf("Expected error to contain first line of panic payload, got: %v", getErr)
+	}
+
+	// Verify that the subsequent lines are NOT leaked
+	if strings.Contains(getErr.Error(), "stack") || strings.Contains(getErr.Error(), "trace") {
+		t.Errorf("Expected sanitized error without multiline payload, got: %v", getErr)
+	}
+}
