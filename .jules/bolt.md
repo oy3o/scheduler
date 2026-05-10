@@ -18,3 +18,6 @@
 ## 2025-05-14 - Loop Fusion and Delayed Resource Allocation in Join
 **Learning:** Merging redundant iterations over the same slice (Loop Fusion), such as combining validation checks and non-blocking 'fast-fail' pre-checks, reduces iteration overhead and improves instruction cache locality. Furthermore, delaying `context.WithCancel` and slice allocations until after these initial O(N) checks avoids unnecessary overhead in common early-failure scenarios.
 **Action:** Always combine validation loops with Phase 1 state checks in coordination functions like `Join`. Defer heavy object creation (contexts, result slices) until the fast-fail phase has passed successfully.
+## 2024-05-10 - O(N) Avoidance in P99 Calculation
+**Learning:** In the performance-critical monitor loop, calculating the P99 latency with linear interpolation triggered an expensive `slices.Min` scan even when the target index was a perfect integer (`frac == 0`).
+**Action:** Always compute fractional weights early and return immediately if the weight is exactly 0 to avoid unnecessary O(N) array scans in hot paths.
