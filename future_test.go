@@ -83,6 +83,25 @@ func TestFuture_PanicIsolation(t *testing.T) {
 	if strings.Contains(getErr.Error(), "goroutine") || strings.Contains(getErr.Error(), "debug.Stack") {
 		t.Errorf("Expected sanitized error without stack trace, got: %v", getErr)
 	}
+
+	// Submit a task that intentionally panics with carriage return
+	f2, err2 := SubmitFunc(g, 10, func(c Context) (int, error) {
+		panic("spoofing attempt\r\nwith trace")
+	})
+	if err2 != nil {
+		t.Fatalf("SubmitFunc failed: %v", err2)
+	}
+
+	_, getErr2 := f2.Get(context.Background())
+	if getErr2 == nil {
+		t.Fatal("Expected an error from panicked task, got nil")
+	}
+	if strings.Contains(getErr2.Error(), "\r") || strings.Contains(getErr2.Error(), "\n") {
+		t.Errorf("Expected sanitized error without carriage return or newline, got: %q", getErr2.Error())
+	}
+	if !strings.Contains(getErr2.Error(), "spoofing attempt") {
+		t.Errorf("Expected error to contain first line of panic payload, got: %v", getErr2)
+	}
 }
 
 func TestFuture_Join(t *testing.T) {
