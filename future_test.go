@@ -258,3 +258,30 @@ func TestJoinNilContext(t *testing.T) {
 		t.Errorf("unexpected error: %v", err)
 	}
 }
+
+func TestFuture_PanicIsolation_LogSpoofing(t *testing.T) {
+	g := New(DefaultConfig())
+	ctx, cancel := context.WithCancel(context.Background())
+	defer g.Wait()
+	defer cancel()
+
+	go g.Start(ctx)
+	for !g.started.Load() {
+		runtime.Gosched()
+	}
+
+	f, err := SubmitFunc(g, 10, func(c Context) (int, error) {
+		panic("sneaky\rattack")
+	})
+	if err != nil {
+		t.Fatalf("SubmitFunc failed: %v", err)
+	}
+
+	_, getErr := f.Get(context.Background())
+	if getErr == nil {
+		t.Fatal("Expected an error from panicked task, got nil")
+	}
+	if strings.Contains(getErr.Error(), "\r") || strings.Contains(getErr.Error(), "attack") {
+		t.Errorf("Expected sanitized error without log spoofing chars, got: %v", getErr)
+	}
+}
