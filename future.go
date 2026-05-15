@@ -99,12 +99,12 @@ func (c *closureTask[T]) Execute(ctx Context) (err error) {
 		if p := recover(); p != nil {
 			internalErr := fmt.Errorf("task panicked: %v\n%s", p, debug.Stack())
 
-			// 🛡️ Sentinel: Sanitize the public error to prevent stack trace leakage.
-			// If the user's panic payload itself contains multiple lines (e.g. they
-			// re-panicked an error with a stack trace), we strip everything after
-			// the first line to keep the Future API clean.
+			// 🛡️ Sentinel: Prevent stack trace leakage and log spoofing via alternate vertical whitespace.
+			// If the user's panic payload itself contains multiple lines or spoofing characters
+			// (e.g. they re-panicked an error with a stack trace or malicious carriage returns),
+			// we strip everything after the first line-breaking character (\n, \r, \f, \v) to keep the Future API clean.
 			pStr := fmt.Sprintf("%v", p)
-			if idx := strings.Index(pStr, "\n"); idx != -1 {
+			if idx := strings.IndexAny(pStr, "\n\r\f\v"); idx != -1 {
 				pStr = pStr[:idx]
 			}
 			publicErr := fmt.Errorf("task panicked: %s", pStr)
