@@ -258,3 +258,27 @@ func TestJoinNilContext(t *testing.T) {
 		t.Errorf("unexpected error: %v", err)
 	}
 }
+
+func TestFuture_PanicSanitization_AlternateWhitespace(t *testing.T) {
+	g := New(DefaultConfig())
+	ctx, cancel := context.WithCancel(context.Background())
+	defer g.Wait()
+	defer cancel()
+
+	go g.Start(ctx)
+	for !g.started.Load() {
+		runtime.Gosched()
+	}
+
+	f, _ := SubmitFunc(g, 10, func(c Context) (int, error) {
+		panic("line1\rline2\fline3\vline4")
+	})
+
+	_, err := f.Get(context.Background())
+	if err == nil {
+		t.Fatal("Expected error, got nil")
+	}
+	if strings.Contains(err.Error(), "line2") || strings.Contains(err.Error(), "line3") {
+		t.Errorf("Expected panic payload to be truncated at alternate whitespace, got: %v", err)
+	}
+}
