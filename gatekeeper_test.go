@@ -35,6 +35,55 @@ func (t *cpuHog) Execute(ctx Context) error {
 	}
 }
 
+func TestZombieCircuitBreaker_TelemetryOnly(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.ZombieTimeout = 100 * time.Millisecond
+	cfg.MaxZombies = 2 // very low threshold for testing
+	cfg.StrictLivelockPanic = false
+
+	var telemetryFired atomic.Bool
+	cfg.OnError = func(task Task, err error) {
+		if err != nil && strings.Contains(err.Error(), "maximum zombie limit exceeded") {
+			telemetryFired.Store(true)
+		}
+	}
+	cfg.OnPanic = func(task Task, p any) {
+		t.Fatalf("Expected code NOT to panic, but it did: %v", p)
+	}
+	g := New(cfg)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go g.Start(ctx)
+	for !g.started.Load() {
+		runtime.Gosched()
+	}
+
+	for i := 0; i < 3; i++ {
+		SubmitVoid(g, 0, func(ctx Context) error {
+			time.Sleep(2 * time.Second) // Hog the slot
+			return nil
+		})
+	}
+	// Give a bit of time for AIMD or dispatch to actually pick all 3 up.
+	time.Sleep(50 * time.Millisecond)
+
+	// Wait up to 3 seconds for watchdog to scan and trip telemetry
+	timeout := time.After(3 * time.Second)
+	for {
+		if telemetryFired.Load() {
+			t.Log("Circuit breaker telemetry successfully triggered")
+			return
+		}
+		select {
+		case <-timeout:
+			t.Fatalf("Expected telemetry to fire but it did not after 3 seconds")
+		default:
+			time.Sleep(50 * time.Millisecond)
+		}
+	}
+}
+
 // ioTask simulates a cooperative IO-bound task that yields frequently.
 type ioTask struct {
 	priority    int
@@ -311,6 +360,7 @@ func TestZombieCircuitBreaker(t *testing.T) {
 	cfg := DefaultConfig()
 	cfg.ZombieTimeout = 100 * time.Millisecond
 	cfg.MaxZombies = 2 // very low threshold for testing
+	cfg.StrictLivelockPanic = true
 	var tripped atomic.Bool
 	cfg.OnPanic = func(t Task, p any) {
 		errStr := fmt.Sprintf("%v", p)
