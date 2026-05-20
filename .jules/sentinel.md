@@ -10,3 +10,7 @@
 **Vulnerability:** Information disclosure via multiline panic payloads in the Future API.
 **Learning:** Even when separating internal and public errors, the raw panic payload 'p' can contain a stack trace if an error with a trace is re-panicked.
 **Prevention:** Always sanitize panic payloads for public-facing errors by truncating them at the first newline or stripping known stack trace keywords.
+## 2024-05-18 - [Fix DoS Vulnerability in Zombie Livelock Handling]
+**Vulnerability:** The Gatekeeper system panics unconditionally when `g.zombieCount` exceeds `g.config.MaxZombies`, leading to potential Denial of Service (DoS).
+**Learning:** Hard panics on resource limits can be weaponized if user-supplied tasks can easily hit those limits (e.g., intentionally starving execution slots). Relying purely on panics for resource exhaustion exposes the service to DoS.
+**Prevention:** Implement graceful telemetry or conditional panics based on configuration (`StrictLivelockPanic`), allowing systems to degrade gracefully or fail-fast intentionally rather than always crashing.
