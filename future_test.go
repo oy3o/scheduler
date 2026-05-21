@@ -85,6 +85,37 @@ func TestFuture_PanicIsolation(t *testing.T) {
 	}
 }
 
+func TestFuture_PanicIsolation_AlternateWhitespace(t *testing.T) {
+	g := New(DefaultConfig())
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	go g.Start(ctx)
+	for !g.started.Load() {
+		runtime.Gosched()
+	}
+
+	// Submit a task that intentionally panics with alternate vertical whitespace
+	f, err := SubmitFunc(g, 10, func(c Context) (int, error) {
+		panic("bloody\rsincerity")
+	})
+	if err != nil {
+		t.Fatalf("SubmitFunc failed: %v", err)
+	}
+
+	// The panic should be caught and returned as an error, NOT crash the test
+	_, getErr := f.Get(context.Background())
+	if getErr == nil {
+		t.Fatal("Expected an error from panicked task, got nil")
+	}
+	if !strings.Contains(getErr.Error(), "bloody") {
+		t.Errorf("Expected error to contain first part of panic payload, got: %v", getErr)
+	}
+	if strings.Contains(getErr.Error(), "sincerity") {
+		t.Errorf("Expected error to truncate after alternate whitespace, got: %v", getErr)
+	}
+}
+
 func TestFuture_Join(t *testing.T) {
 	g := New(DefaultConfig())
 	ctx, cancel := context.WithCancel(context.Background())
