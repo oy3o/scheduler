@@ -258,3 +258,32 @@ func TestJoinNilContext(t *testing.T) {
 		t.Errorf("unexpected error: %v", err)
 	}
 }
+
+func TestFuture_PanicIsolation_Whitespace(t *testing.T) {
+	g := New(DefaultConfig())
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	go g.Start(ctx)
+	for !g.started.Load() {
+		runtime.Gosched()
+	}
+
+	f, err := SubmitFunc(g, 10, func(c Context) (int, error) {
+		panic("malicious\rpayload")
+	})
+	if err != nil {
+		t.Fatalf("SubmitFunc failed: %v", err)
+	}
+
+	_, getErr := f.Get(context.Background())
+	if getErr == nil {
+		t.Fatal("Expected an error from panicked task, got nil")
+	}
+	if strings.Contains(getErr.Error(), "payload") {
+		t.Errorf("Expected payload to be truncated at \\r, got: %v", getErr)
+	}
+	if !strings.Contains(getErr.Error(), "malicious") {
+		t.Errorf("Expected error to contain first part, got: %v", getErr)
+	}
+}
