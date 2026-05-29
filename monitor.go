@@ -153,11 +153,18 @@ func sortedPercentileMut(data []float64, p float64) float64 {
 	}
 
 	vLo := quickSelect(data, lo)
+	frac := idx - float64(lo)
+
+	// ⚡ Bolt: Early return if exact percentile index is found.
+	// This skips the O(N) slices.Min scan for the upper interpolation bound
+	// when the fractional component is 0 (e.g. median of an odd-sized array).
+	if frac == 0 {
+		return vLo
+	}
 
 	// vHi is the minimum of elements AFTER lo
 	vHi := slices.Min(data[lo+1:])
 
-	frac := idx - float64(lo)
 	return vLo + frac*(vHi-vLo)
 }
 
