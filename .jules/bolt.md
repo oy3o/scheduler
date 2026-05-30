@@ -18,3 +18,7 @@
 ## 2025-05-14 - Loop Fusion and Delayed Resource Allocation in Join
 **Learning:** Merging redundant iterations over the same slice (Loop Fusion), such as combining validation checks and non-blocking 'fast-fail' pre-checks, reduces iteration overhead and improves instruction cache locality. Furthermore, delaying `context.WithCancel` and slice allocations until after these initial O(N) checks avoids unnecessary overhead in common early-failure scenarios.
 **Action:** Always combine validation loops with Phase 1 state checks in coordination functions like `Join`. Defer heavy object creation (contexts, result slices) until the fast-fail phase has passed successfully.
+
+## 2025-05-20 - Early Return on Exact Percentiles in QuickSelect
+**Learning:** When calculating percentiles with linear interpolation on unsorted slices using QuickSelect, finding the upper bound for the fractional component (e.g., via `slices.Min`) requires an O(N) scan.
+**Action:** Compute the fractional index difference (`frac`) first and immediately return the lower bound if `frac == 0` to skip the unnecessary O(N) adjacent-element lookup.
