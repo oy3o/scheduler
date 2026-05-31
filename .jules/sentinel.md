@@ -10,3 +10,8 @@
 **Vulnerability:** Information disclosure via multiline panic payloads in the Future API.
 **Learning:** Even when separating internal and public errors, the raw panic payload 'p' can contain a stack trace if an error with a trace is re-panicked.
 **Prevention:** Always sanitize panic payloads for public-facing errors by truncating them at the first newline or stripping known stack trace keywords.
+
+## 2024-05-31 - [Fix Stack Trace Leakage via Alternate Whitespace]
+**Vulnerability:** The sanitization logic for panic payloads in `future.go` truncated messages only at the newline (`\n`) character.
+**Learning:** This allowed alternate vertical whitespace characters (such as `\r`, `\f`, or `\v`) to bypass the truncation, potentially leaking stack traces or enabling terminal log spoofing.
+**Prevention:** Always use `strings.IndexAny(pStr, "\n\r\f\v")` or similar comprehensive checks to sanitize payloads against all standard line-breaking characters, thereby mitigating log injection and information disclosure.
