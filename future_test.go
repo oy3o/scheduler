@@ -258,3 +258,38 @@ func TestJoinNilContext(t *testing.T) {
 		t.Errorf("unexpected error: %v", err)
 	}
 }
+
+func TestFuture_SanitizeCarriageReturn(t *testing.T) {
+	g := New(DefaultConfig())
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	go g.Start(ctx)
+	for !g.started.Load() {
+		runtime.Gosched()
+	}
+
+	// Submit a task that intentionally panics with a carriage return
+	f, err := SubmitFunc(g, 10, func(c Context) (int, error) {
+		panic("bloody sincerity\r\ngoroutine 1 [running]:\nmain.main()\n\t/tmp/test.go:10 +0x39")
+	})
+	if err != nil {
+		t.Fatalf("SubmitFunc failed: %v", err)
+	}
+
+	// The panic should be caught and returned as an error
+	_, getErr := f.Get(context.Background())
+	if getErr == nil {
+		t.Fatal("Expected an error from panicked task, got nil")
+	}
+
+	errStr := getErr.Error()
+	if !strings.Contains(errStr, "bloody sincerity") {
+		t.Errorf("Expected error to contain panic payload, got: %v", getErr)
+	}
+
+	// Verify that stack trace is NOT leaked in the public Future API
+	if strings.Contains(errStr, "goroutine") || strings.Contains(errStr, "main.main") {
+		t.Errorf("Expected sanitized error without stack trace, got: %v", getErr)
+	}
+}
