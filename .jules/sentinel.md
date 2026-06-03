@@ -10,3 +10,7 @@
 **Vulnerability:** Information disclosure via multiline panic payloads in the Future API.
 **Learning:** Even when separating internal and public errors, the raw panic payload 'p' can contain a stack trace if an error with a trace is re-panicked.
 **Prevention:** Always sanitize panic payloads for public-facing errors by truncating them at the first newline or stripping known stack trace keywords.
+## 2024-05-28 - Unconditional Panic DoS in Zombie Limits
+**Vulnerability:** The Gatekeeper's watchdog loop unconditionally panicked when the `MaxZombies` limit was exceeded, completely ignoring the `StrictLivelockPanic` configuration.
+**Learning:** Hardcoded panics on resource exhaustion create trivial Denial of Service (DoS) vectors, allowing an attacker to intentionally stall tasks and crash the entire microservice.
+**Prevention:** Always respect configurable fail-fast flags (like `StrictLivelockPanic`) and gracefully degrade (e.g., via `safeOnError`) by default to prevent process-wide DoS crashes.
