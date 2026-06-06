@@ -10,3 +10,8 @@
 **Vulnerability:** Information disclosure via multiline panic payloads in the Future API.
 **Learning:** Even when separating internal and public errors, the raw panic payload 'p' can contain a stack trace if an error with a trace is re-panicked.
 **Prevention:** Always sanitize panic payloads for public-facing errors by truncating them at the first newline or stripping known stack trace keywords.
+
+## 2024-06-06 - [Fix Log Spoofing via Multiline Panic in Gatekeeper]
+**Vulnerability:** The Gatekeeper dispatch loop captured raw panic payloads from `e.task.Execute` and wrapped them into an error (`task panicked: %v`) without sanitizing alternate vertical whitespace characters (`\r`, `\v`, `\f`).
+**Learning:** This could lead to log spoofing or terminal overwrite attacks if the error is routed to external telemetry logging, as carriage returns can maliciously overwrite console output.
+**Prevention:** Always sanitize panic payloads at the boundary before wrapping them into a public-facing `taskErr` by truncating at the first occurrence of alternate vertical whitespace characters.

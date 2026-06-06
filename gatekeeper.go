@@ -6,6 +6,7 @@ import (
 	"math/rand/v2"
 	"os"
 	"runtime"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -436,7 +437,12 @@ func (g *Gatekeeper) runTask(baseCtx context.Context, e *entry, isFastPath bool)
 				if g.config.OnPanic != nil {
 					g.config.OnPanic(e.task, r)
 				}
-				taskErr = fmt.Errorf("task panicked: %v", r)
+				// 🛡️ Sentinel: Sanitize panic payload before wrapping it to prevent log spoofing via alternate newlines
+				pStr := fmt.Sprintf("%v", r)
+				if idx := strings.IndexAny(pStr, "\n\r\f\v"); idx != -1 {
+					pStr = pStr[:idx]
+				}
+				taskErr = fmt.Errorf("task panicked: %s", pStr)
 			}
 		}()
 		taskErr = e.task.Execute(s)
