@@ -258,3 +258,29 @@ func TestJoinNilContext(t *testing.T) {
 		t.Errorf("unexpected error: %v", err)
 	}
 }
+
+func TestFuture_PanicSanitizationLogSpoofing(t *testing.T) {
+	g := New(DefaultConfig())
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	go g.Start(ctx)
+	for !g.started.Load() {
+		runtime.Gosched()
+	}
+
+	payload := "initial error\r\nfake-log: success\f\vsome other secret"
+	f, _ := SubmitFunc(g, 10, func(c Context) (int, error) {
+		panic(payload)
+	})
+
+	_, getErr := f.Get(context.Background())
+	if getErr == nil {
+		t.Fatal("Expected an error from panicked task, got nil")
+	}
+
+	errStr := getErr.Error()
+	if strings.Contains(errStr, "fake-log") || strings.Contains(errStr, "secret") {
+		t.Errorf("error contains unsanitized payload: %q", errStr)
+	}
+}
