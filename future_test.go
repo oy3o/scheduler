@@ -258,3 +258,31 @@ func TestJoinNilContext(t *testing.T) {
 		t.Errorf("unexpected error: %v", err)
 	}
 }
+
+func TestFuture_LogSpoofingPrevention(t *testing.T) {
+	g := New(DefaultConfig())
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	go g.Start(ctx)
+	for !g.started.Load() {
+		runtime.Gosched()
+	}
+
+	f, _ := SubmitFunc(g, 10, func(c Context) (int, error) {
+		panic("harmless error\rMALICIOUS OVERWRITE\nline2")
+	})
+
+	_, getErr := f.Get(context.Background())
+	if getErr == nil {
+		t.Fatal("Expected an error from panicked task, got nil")
+	}
+
+	errMsg := getErr.Error()
+	if strings.Contains(errMsg, "MALICIOUS") || strings.Contains(errMsg, "line2") {
+		t.Errorf("Expected sanitized error without log spoofing, got: %v", getErr)
+	}
+	if !strings.Contains(errMsg, "harmless error") {
+		t.Errorf("Expected error to contain harmless payload, got: %v", getErr)
+	}
+}
