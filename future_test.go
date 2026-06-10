@@ -258,3 +258,37 @@ func TestJoinNilContext(t *testing.T) {
 		t.Errorf("unexpected error: %v", err)
 	}
 }
+
+func TestFuture_PanicSpoofingPrevention(t *testing.T) {
+	g := New(Config{})
+	ctx := context.Background()
+
+	// Ensure the gatekeeper is fully started
+	go g.Start(ctx)
+	for !g.started.Load() {
+		runtime.Gosched()
+	}
+
+	// Submit a task that intentionally panics with various vertical whitespace
+	// characters that could be used for log spoofing or terminal overwrite
+	// attacks.
+	payload := "spoofed\r\nstack trace\fhere\v"
+	f, err := SubmitFunc(g, 0, func(ctx Context) (int, error) {
+		panic(payload)
+	})
+	if err != nil {
+		t.Fatalf("SubmitFunc failed: %v", err)
+	}
+
+	_, getErr := f.Get(ctx)
+	if getErr == nil {
+		t.Fatal("Expected an error from panicked task, got nil")
+	}
+
+	// Verify that the sanitization correctly truncated at the first alternate
+	// vertical whitespace character (\r), not just \n.
+	expected := "task panicked: spoofed"
+	if getErr.Error() != expected {
+		t.Errorf("Expected sanitized error %q, got: %q", expected, getErr.Error())
+	}
+}
