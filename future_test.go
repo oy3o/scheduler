@@ -83,6 +83,15 @@ func TestFuture_PanicIsolation(t *testing.T) {
 	if strings.Contains(getErr.Error(), "goroutine") || strings.Contains(getErr.Error(), "debug.Stack") {
 		t.Errorf("Expected sanitized error without stack trace, got: %v", getErr)
 	}
+
+	// Submit a task with malicious carriage returns to test log spoofing mitigation
+	fSpoof, _ := SubmitFunc(g, 10, func(c Context) (int, error) {
+		panic("innocent error\rspoofed log entry")
+	})
+	_, getErrSpoof := fSpoof.Get(context.Background())
+	if strings.Contains(getErrSpoof.Error(), "spoofed log entry") {
+		t.Errorf("Expected panic payload to be truncated at carriage return, got: %v", getErrSpoof)
+	}
 }
 
 func TestFuture_Join(t *testing.T) {
