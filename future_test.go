@@ -112,6 +112,29 @@ func TestFuture_Join(t *testing.T) {
 	}
 }
 
+func TestFuture_LogSpoofing(t *testing.T) {
+	g := New(DefaultConfig())
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go g.Start(ctx)
+
+	for !g.started.Load() {
+		runtime.Gosched()
+	}
+
+	f, _ := SubmitFunc(g, PriorityNormal, func(ctx Context) (string, error) {
+		panic("spoofed\r\nstack\r\ntrace")
+	})
+
+	_, err := f.Get(context.Background())
+	if err == nil {
+		t.Fatal("expected panic error")
+	}
+	if strings.Contains(err.Error(), "stack") {
+		t.Errorf("error contains spoofed payload: %v", err)
+	}
+}
+
 func TestFuture_JoinFailFast(t *testing.T) {
 	g := New(DefaultConfig())
 	ctx, cancel := context.WithCancel(context.Background())
