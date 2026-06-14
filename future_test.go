@@ -85,6 +85,38 @@ func TestFuture_PanicIsolation(t *testing.T) {
 	}
 }
 
+func TestFuture_PanicLogSpoofing(t *testing.T) {
+	g := New(DefaultConfig())
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	go g.Start(ctx)
+	for !g.started.Load() {
+		runtime.Gosched()
+	}
+
+	// Submit a task with a payload containing carriage return
+	f, err := SubmitFunc(g, 10, func(c Context) (int, error) {
+		panic("spoof\rmalicious log entry")
+	})
+	if err != nil {
+		t.Fatalf("SubmitFunc failed: %v", err)
+	}
+
+	_, getErr := f.Get(context.Background())
+	if getErr == nil {
+		t.Fatal("Expected an error from panicked task, got nil")
+	}
+
+	// Verify that the payload is truncated at the carriage return
+	if strings.Contains(getErr.Error(), "malicious log entry") {
+		t.Errorf("Expected panic payload to be truncated, got: %v", getErr)
+	}
+	if !strings.Contains(getErr.Error(), "spoof") {
+		t.Errorf("Expected panic payload to contain 'spoof', got: %v", getErr)
+	}
+}
+
 func TestFuture_Join(t *testing.T) {
 	g := New(DefaultConfig())
 	ctx, cancel := context.WithCancel(context.Background())

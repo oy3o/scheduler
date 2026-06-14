@@ -10,3 +10,7 @@
 **Vulnerability:** Information disclosure via multiline panic payloads in the Future API.
 **Learning:** Even when separating internal and public errors, the raw panic payload 'p' can contain a stack trace if an error with a trace is re-panicked.
 **Prevention:** Always sanitize panic payloads for public-facing errors by truncating them at the first newline or stripping known stack trace keywords.
+## 2024-03-20 - [Fix Log Spoofing / Terminal Overwrite in Panic Payloads]
+**Vulnerability:** The sanitization of panic payloads in `future.go` only checked for `\n`. Attackers could use other vertical whitespace characters like `\r`, `\f`, or `\v` to bypass the truncation, allowing them to overwrite terminal lines or spoof log entries downstream.
+**Learning:** Checking only for `\n` is insufficient for sanitizing log output. Carriage returns (`\r`) in particular are a common vector for terminal overwrite attacks, where text following the `\r` overwrites the beginning of the line.
+**Prevention:** Always truncate potentially unsafe user input or dynamic payloads at *any* alternate vertical whitespace character (`\n\r\f\v`) before returning them in public APIs or logging them, preventing both stack trace leakage and log spoofing.
