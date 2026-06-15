@@ -79,6 +79,15 @@ func TestFuture_PanicIsolation(t *testing.T) {
 		t.Errorf("Expected error to contain panic payload, got: %v", getErr)
 	}
 
+	// Submit another task with CRLF to test log spoofing prevention
+	f2, _ := SubmitFunc(g, 10, func(c Context) (int, error) {
+		panic("hello\rworld")
+	})
+	_, getErr2 := f2.Get(context.Background())
+	if strings.Contains(getErr2.Error(), "\r") || strings.Contains(getErr2.Error(), "world") {
+		t.Errorf("Expected CRLF panic payload to be sanitized, got: %q", getErr2)
+	}
+
 	// Verify that stack trace is NOT leaked in the public Future API
 	if strings.Contains(getErr.Error(), "goroutine") || strings.Contains(getErr.Error(), "debug.Stack") {
 		t.Errorf("Expected sanitized error without stack trace, got: %v", getErr)
