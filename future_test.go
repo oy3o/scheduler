@@ -64,7 +64,7 @@ func TestFuture_PanicIsolation(t *testing.T) {
 
 	// Submit a task that intentionally panics
 	f, err := SubmitFunc(g, 10, func(c Context) (int, error) {
-		panic("bloody sincerity")
+		panic("bloody sincerity\rsome spoofed logs")
 	})
 	if err != nil {
 		t.Fatalf("SubmitFunc failed: %v", err)
@@ -77,6 +77,10 @@ func TestFuture_PanicIsolation(t *testing.T) {
 	}
 	if !strings.Contains(getErr.Error(), "bloody sincerity") {
 		t.Errorf("Expected error to contain panic payload, got: %v", getErr)
+	}
+
+	if strings.Contains(getErr.Error(), "spoofed logs") {
+		t.Errorf("Expected sanitized error without spoofed logs, got: %v", getErr)
 	}
 
 	// Verify that stack trace is NOT leaked in the public Future API
