@@ -10,3 +10,7 @@
 **Vulnerability:** Information disclosure via multiline panic payloads in the Future API.
 **Learning:** Even when separating internal and public errors, the raw panic payload 'p' can contain a stack trace if an error with a trace is re-panicked.
 **Prevention:** Always sanitize panic payloads for public-facing errors by truncating them at the first newline or stripping known stack trace keywords.
+## 2026-03-27 - [Fix Log Spoofing and Panic Telemetry Leak in Future API]
+**Vulnerability:** The `closureTask[T].Execute` method sanitized public errors by truncating only at `\n`. Attackers could use alternate vertical whitespace characters like `\r`, `\f`, or `\v` in a panic payload to bypass sanitization, potentially allowing log spoofing or overwriting terminal output.
+**Learning:** Checking only for standard newline (`\n`) is insufficient for sanitizing strings that may be output to terminals or logs. Furthermore, the original fix swallowed the true raw payload, breaking system-level telemetry.
+**Prevention:** Always sanitize strings against all vertical whitespace characters (`\n`, `\r`, `\f`, `\v`) when preventing log spoofing/multi-line leakage. Additionally, re-throw the original panic payload (`panic(p)`) so the system-level recovery mechanism (Gatekeeper dispatch loop) can accurately capture and route the full telemetry context.

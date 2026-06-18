@@ -3,6 +3,7 @@ package scheduler
 import (
 	"context"
 	"errors"
+	"fmt"
 	"runtime"
 	"strings"
 	"testing"
@@ -82,6 +83,63 @@ func TestFuture_PanicIsolation(t *testing.T) {
 	// Verify that stack trace is NOT leaked in the public Future API
 	if strings.Contains(getErr.Error(), "goroutine") || strings.Contains(getErr.Error(), "debug.Stack") {
 		t.Errorf("Expected sanitized error without stack trace, got: %v", getErr)
+	}
+}
+
+func TestFuture_PanicLogSpoofingAndTelemetry(t *testing.T) {
+	panicHookCalled := false
+	var panicPayload any
+
+	cfg := DefaultConfig()
+	cfg.OnPanic = func(task Task, p any) {
+		panicHookCalled = true
+		panicPayload = p
+	}
+
+	g := New(cfg)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	go g.Start(ctx)
+	for !g.started.Load() {
+		runtime.Gosched()
+	}
+
+	f, err := SubmitFunc(g, 10, func(c Context) (int, error) {
+		panic("evil\r\n\033[2Jspoofed")
+	})
+	if err != nil {
+		t.Fatalf("SubmitFunc failed: %v", err)
+	}
+
+	_, getErr := f.Get(context.Background())
+	if getErr == nil {
+		t.Fatal("Expected an error from panicked task, got nil")
+	}
+
+	errMsg := getErr.Error()
+	if strings.Contains(errMsg, "spoofed") {
+		t.Errorf("Expected sanitized error without spoofed payload, got: %v", getErr)
+	}
+	if errMsg != "task panicked: evil" {
+		t.Errorf("Unexpected sanitized error: %v", getErr)
+	}
+
+	// Wait for OnPanic hook to be called
+	for i := 0; i < 100; i++ {
+		if panicHookCalled {
+			break
+		}
+		runtime.Gosched()
+	}
+
+	if !panicHookCalled {
+		t.Fatal("Expected OnPanic hook to be called")
+	}
+
+	pStr := fmt.Sprintf("%v", panicPayload)
+	if pStr != "evil\r\n\033[2Jspoofed" {
+		t.Errorf("Expected full original payload in OnPanic, got: %q", pStr)
 	}
 }
 
