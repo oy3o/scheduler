@@ -33,8 +33,8 @@ func main() {
 	for i := 0; i < 10000; i++ {
 		e := pool.Get().(*entry)
 		addr := uint64(uintptr(unsafe.Pointer(e)))
-		if addr % 128 != 0 {
-			fmt.Printf("NOT 128-byte aligned: %x (offset: %d)\n", addr, addr % 128)
+		if addr%128 != 0 {
+			fmt.Printf("NOT 128-byte aligned: %x (offset: %d)\n", addr, addr%128)
 			return
 		}
 	}
