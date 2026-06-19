@@ -10,3 +10,8 @@
 **Vulnerability:** Information disclosure via multiline panic payloads in the Future API.
 **Learning:** Even when separating internal and public errors, the raw panic payload 'p' can contain a stack trace if an error with a trace is re-panicked.
 **Prevention:** Always sanitize panic payloads for public-facing errors by truncating them at the first newline or stripping known stack trace keywords.
+
+## 2025-05-20 - [Fix Log Spoofing via Carriage Returns in Panic Payloads]
+**Vulnerability:** Information disclosure and log spoofing via multiline/carriage return panic payloads in the Future API.
+**Learning:** Even when truncating panic payloads at newlines (`\n`), attackers could use alternate whitespace characters like carriage returns (`\r`), form feeds (`\f`), or vertical tabs (`\v`) to bypass the check, potentially causing terminal overwrite/log-spoofing or leaking stack traces if logged raw.
+**Prevention:** Always sanitize panic payloads for public-facing errors by truncating them at any vertical whitespace (`\n\r\f\v`) to prevent log spoofing and stack trace leakage.
