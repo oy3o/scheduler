@@ -10,3 +10,8 @@
 **Vulnerability:** Information disclosure via multiline panic payloads in the Future API.
 **Learning:** Even when separating internal and public errors, the raw panic payload 'p' can contain a stack trace if an error with a trace is re-panicked.
 **Prevention:** Always sanitize panic payloads for public-facing errors by truncating them at the first newline or stripping known stack trace keywords.
+
+## 2024-06-20 - [Fix Denial of Service via Zombie Limit Panic]
+**Vulnerability:** The Gatekeeper's maximum zombie limit check unconditionally panics when `MaxZombies` is exceeded, disregarding the `StrictLivelockPanic` configuration. This can lead to a process crash (Denial of Service).
+**Learning:** System survivability limits should respect global configuration hooks instead of hardcoding failsafe behaviors, especially when mitigating resource exhaustion where process termination may be less desirable than gracefully handling dropped tasks.
+**Prevention:** Ensure that catastrophic failure boundaries explicitly consult process configuration (e.g. `StrictLivelockPanic`) before issuing an unrecoverable `panic()`, routing non-fatal cases to standard error handlers.
