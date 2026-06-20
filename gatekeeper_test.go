@@ -311,6 +311,7 @@ func TestZombieCircuitBreaker(t *testing.T) {
 	cfg := DefaultConfig()
 	cfg.ZombieTimeout = 100 * time.Millisecond
 	cfg.MaxZombies = 2 // very low threshold for testing
+	cfg.StrictLivelockPanic = true
 	var tripped atomic.Bool
 	cfg.OnPanic = func(t Task, p any) {
 		errStr := fmt.Sprintf("%v", p)
