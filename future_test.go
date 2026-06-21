@@ -85,6 +85,34 @@ func TestFuture_PanicIsolation(t *testing.T) {
 	}
 }
 
+func TestFuturePanicSpoofing(t *testing.T) {
+	g := New(DefaultConfig())
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	go g.Start(ctx)
+	for !g.started.Load() {
+		runtime.Gosched()
+	}
+
+	// Submit a task that intentionally panics with CRLF
+	f, err := SubmitFunc(g, 10, func(c Context) (int, error) {
+		panic("panic payload\rSpoofed message!")
+	})
+	if err != nil {
+		t.Fatalf("SubmitFunc failed: %v", err)
+	}
+
+	_, getErr := f.Get(context.Background())
+	if getErr == nil {
+		t.Fatal("Expected an error from panicked task, got nil")
+	}
+
+	if strings.Contains(getErr.Error(), "Spoofed message!") {
+		t.Errorf("Error contains spoofed message via CRLF, got: %v", getErr)
+	}
+}
+
 func TestFuture_Join(t *testing.T) {
 	g := New(DefaultConfig())
 	ctx, cancel := context.WithCancel(context.Background())
