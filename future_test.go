@@ -258,3 +258,31 @@ func TestJoinNilContext(t *testing.T) {
 		t.Errorf("unexpected error: %v", err)
 	}
 }
+
+func TestFuture_PanicSanitization(t *testing.T) {
+	g := New(DefaultConfig())
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	go g.Start(ctx)
+	for !g.started.Load() {
+		runtime.Gosched()
+	}
+
+	f, _ := SubmitFunc(g, 10, func(c Context) (int, error) {
+		panic("error message\r\nstack trace line 1\nstack trace line 2")
+	})
+
+	_, getErr := f.Get(context.Background())
+	if getErr == nil {
+		t.Fatal("Expected an error from panicked task, got nil")
+	}
+
+	errStr := getErr.Error()
+	if strings.Contains(errStr, "stack trace") {
+		t.Errorf("Expected panic payload to be sanitized at first newline or carriage return, got: %q", errStr)
+	}
+	if !strings.Contains(errStr, "error message") {
+		t.Errorf("Expected error message to be preserved, got: %q", errStr)
+	}
+}
