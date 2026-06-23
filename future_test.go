@@ -258,3 +258,27 @@ func TestJoinNilContext(t *testing.T) {
 		t.Errorf("unexpected error: %v", err)
 	}
 }
+
+func TestFuture_LogSpoofingPanic(t *testing.T) {
+	g := New(DefaultConfig())
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	go g.Start(ctx)
+	for !g.started.Load() {
+		runtime.Gosched()
+	}
+
+	f, _ := SubmitFunc(g, 10, func(c Context) (string, error) {
+		panic("panic payload\r[SPOOFED LOG] INFO: success\nstack trace line 1")
+	})
+
+	_, err := f.Get(context.Background())
+	if err == nil {
+		t.Fatalf("expected error")
+	}
+
+	if strings.Contains(err.Error(), "SPOOFED") {
+		t.Errorf("Log spoofing possible! Error contains spoofed payload: %q", err.Error())
+	}
+}
