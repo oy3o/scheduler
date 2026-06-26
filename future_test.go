@@ -85,6 +85,36 @@ func TestFuture_PanicIsolation(t *testing.T) {
 	}
 }
 
+func TestFuture_PanicLogSpoofing(t *testing.T) {
+	g := New(DefaultConfig())
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	go g.Start(ctx)
+	for !g.started.Load() {
+		runtime.Gosched()
+	}
+
+	// Submit a task that intentionally panics with alternate vertical whitespace
+	f, err := SubmitFunc(g, 10, func(c Context) (int, error) {
+		panic("line1\rline2\nline3\fline4\vline5")
+	})
+	if err != nil {
+		t.Fatalf("SubmitFunc failed: %v", err)
+	}
+
+	_, getErr := f.Get(context.Background())
+	if getErr == nil {
+		t.Fatal("Expected an error from panicked task, got nil")
+	}
+	if strings.Contains(getErr.Error(), "line2") || strings.Contains(getErr.Error(), "line3") {
+		t.Errorf("Expected error to be truncated at first vertical whitespace, got: %v", getErr)
+	}
+	if !strings.Contains(getErr.Error(), "line1") {
+		t.Errorf("Expected error to contain the first line of panic payload, got: %v", getErr)
+	}
+}
+
 func TestFuture_Join(t *testing.T) {
 	g := New(DefaultConfig())
 	ctx, cancel := context.WithCancel(context.Background())
