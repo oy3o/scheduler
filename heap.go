@@ -30,7 +30,7 @@ type entry struct {
 	_ [(cacheLineSize - (unsafe.Sizeof(entryHot{}) % cacheLineSize)) % cacheLineSize]byte
 }
 
-var _ = [1]struct{}{}[unsafe.Sizeof(entry{}) % cacheLineSize]
+var _ = [1]struct{}{}[unsafe.Sizeof(entry{})%cacheLineSize]
 
 const (
 	stateQueued uint32 = iota
@@ -41,7 +41,7 @@ const (
 type energyShard struct {
 	mu      sync.Mutex
 	entries []*entry
-	_       [(cacheLineSize - (unsafe.Sizeof(sync.Mutex{})+unsafe.Sizeof([]*entry{}))%cacheLineSize)%cacheLineSize]byte // cache-line padding to prevent false sharing
+	_       [(cacheLineSize - (unsafe.Sizeof(sync.Mutex{})+unsafe.Sizeof([]*entry{}))%cacheLineSize) % cacheLineSize]byte // cache-line padding to prevent false sharing
 }
 
 // energyHeap is a sharded min-heap ordered by energy to reduce lock contention.
@@ -75,7 +75,7 @@ func acquireEntry(task Task, creationPressure float64) *entry {
 	e.state.Store(stateQueued)
 	e.generation++ // ABA protection
 
-	// Safety: Purge any phantom signals from ghost goroutines without 
+	// Safety: Purge any phantom signals from ghost goroutines without
 	// allocating new memory, preserving the zero-allocation hot path.
 	select {
 	case <-e.wake:

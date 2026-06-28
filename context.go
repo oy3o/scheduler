@@ -28,9 +28,9 @@ func init() {
 // (valenced versions) to ensure ghost goroutines cannot hijack recycled memory.
 type taskStateHot struct {
 	context.Context
-	task         Task
-	start        atomic.Int64 // NowNano()
-	dispatchedAt atomic.Int64 // NowNano()
+	task            Task
+	start           atomic.Int64 // NowNano()
+	dispatchedAt    atomic.Int64 // NowNano()
 	entry           *entry
 	gate            *Gatekeeper
 	stateData       atomic.Uint64 // high 32: version, low 32: flags
@@ -43,7 +43,7 @@ type taskState struct {
 	_ [(cacheLineSize - (unsafe.Sizeof(taskStateHot{}) % cacheLineSize)) % cacheLineSize]byte
 }
 
-var _ = [1]struct{}{}[unsafe.Sizeof(taskState{}) % cacheLineSize]
+var _ = [1]struct{}{}[unsafe.Sizeof(taskState{})%cacheLineSize]
 
 const (
 	flagValid uint32 = 1 << iota
@@ -88,8 +88,8 @@ func releaseCtx(s *taskState) {
 	// [Architectural Note]: We NO LONGER explicitly set Context, task, and entry to nil.
 	// Eager partial-clearing of interfaces in a lock-free pool creates a fatal TOCTOU race
 	// where a ghost goroutine passes the version check but panics upon dereferencing
-	// the cleared interface pointer after a preemption. We rely entirely on the 
-	// Valenced Versioning (flagValid) boundary to reject ghost interactions, and accept 
+	// the cleared interface pointer after a preemption. We rely entirely on the
+	// Valenced Versioning (flagValid) boundary to reject ghost interactions, and accept
 	// the delayed GC of the context tree as the necessary cost of zero-lock memory safety.
 	s.gate = nil
 	s.watchdogPenalty.Store(0)
@@ -102,7 +102,7 @@ func (s *taskState) setZombied(version uint32) bool {
 		if uint32(data>>32) != version {
 			return false
 		}
-		// If the task is already exiting or in a syscall, the Watchdog must back off 
+		// If the task is already exiting or in a syscall, the Watchdog must back off
 		// to prevent double-release of the gate slot or incorrect zombie marking.
 		if uint32(data)&(flagZombied|flagExiting|flagInSyscall) != 0 {
 			return false
