@@ -83,6 +83,18 @@ func TestFuture_PanicIsolation(t *testing.T) {
 	if strings.Contains(getErr.Error(), "goroutine") || strings.Contains(getErr.Error(), "debug.Stack") {
 		t.Errorf("Expected sanitized error without stack trace, got: %v", getErr)
 	}
+
+	// Test with carriage return to verify it doesn't leak
+	f2, _ := SubmitFunc(g, 10, func(c Context) (int, error) {
+		panic("bloody\rsincerity\ngoroutine\nstack trace")
+	})
+
+	_, getErr2 := f2.Get(context.Background())
+
+	if strings.Contains(getErr2.Error(), "sincerity") || strings.Contains(getErr2.Error(), "goroutine") {
+		t.Errorf("Expected sanitized error without carriage return leak, got: %v", getErr2)
+	}
+
 }
 
 func TestFuture_Join(t *testing.T) {
