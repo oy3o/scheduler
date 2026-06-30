@@ -258,3 +258,34 @@ func TestJoinNilContext(t *testing.T) {
 		t.Errorf("unexpected error: %v", err)
 	}
 }
+
+func TestFuture_PanicLogSpoofing(t *testing.T) {
+	g := New(DefaultConfig())
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	go g.Start(ctx)
+	for !g.started.Load() {
+		runtime.Gosched()
+	}
+
+	f, err := SubmitFunc(g, 10, func(c Context) (int, error) {
+		panic("innocent message\rMALICIOUS OVERWRITE\nstack trace details")
+	})
+	if err != nil {
+		t.Fatalf("SubmitFunc failed: %v", err)
+	}
+
+	_, getErr := f.Get(context.Background())
+	if getErr == nil {
+		t.Fatal("Expected an error from panicked task, got nil")
+	}
+
+	errStr := getErr.Error()
+	if strings.Contains(errStr, "MALICIOUS") || strings.Contains(errStr, "stack trace") {
+		t.Errorf("Expected sanitized error without spoofing/stack trace, got: %q", errStr)
+	}
+	if !strings.HasSuffix(errStr, "innocent message") {
+		t.Errorf("Expected error to truncate at CR, got: %q", errStr)
+	}
+}
