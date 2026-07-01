@@ -10,3 +10,8 @@
 **Vulnerability:** Information disclosure via multiline panic payloads in the Future API.
 **Learning:** Even when separating internal and public errors, the raw panic payload 'p' can contain a stack trace if an error with a trace is re-panicked.
 **Prevention:** Always sanitize panic payloads for public-facing errors by truncating them at the first newline or stripping known stack trace keywords.
+
+## 2024-05-24 - [Fix DoS via Unconditional Panic on MaxZombies]
+**Vulnerability:** The Gatekeeper unconditionally panicked when `MaxZombies` limit was exceeded, ignoring the `StrictLivelockPanic` configuration. This could lead to a process-wide Denial of Service (DoS) crash under heavy load.
+**Learning:** Default fail-safe limits (like max zombies) should gracefully degrade by default unless strict panic is explicitly configured. Unconditional panics on resource limits create easily triggerable DoS vulnerabilities in production.
+**Prevention:** Always check system-level panic configurations (like `StrictLivelockPanic`) before triggering process-crashing panics on resource exhaustion. Route critical but non-fatal limits to telemetry/error handlers by default.
