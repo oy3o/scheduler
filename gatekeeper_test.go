@@ -310,7 +310,8 @@ func TestGatekeeper_YieldResubmission(t *testing.T) {
 func TestZombieCircuitBreaker(t *testing.T) {
 	cfg := DefaultConfig()
 	cfg.ZombieTimeout = 100 * time.Millisecond
-	cfg.MaxZombies = 2 // very low threshold for testing
+	cfg.MaxZombies = 2             // very low threshold for testing
+	cfg.StrictLivelockPanic = true // ensure panic behavior is tested
 	var tripped atomic.Bool
 	cfg.OnPanic = func(t Task, p any) {
 		errStr := fmt.Sprintf("%v", p)

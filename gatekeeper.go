@@ -607,7 +607,12 @@ func (g *Gatekeeper) watchdogScan(ctx context.Context) {
 						g.signal()
 
 						if g.zombieCount.Add(1) > int64(g.config.MaxZombies) {
-							panic(fmt.Sprintf("gatekeeper: maximum zombie limit exceeded (%d)", g.config.MaxZombies))
+							err := fmt.Errorf("gatekeeper: maximum zombie limit exceeded (%d)", g.config.MaxZombies)
+							if g.config.StrictLivelockPanic {
+								panic(err.Error())
+							} else {
+								g.safeOnError(s.task, err)
+							}
 						}
 					}
 				} else {
