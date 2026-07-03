@@ -10,3 +10,8 @@
 **Vulnerability:** Information disclosure via multiline panic payloads in the Future API.
 **Learning:** Even when separating internal and public errors, the raw panic payload 'p' can contain a stack trace if an error with a trace is re-panicked.
 **Prevention:** Always sanitize panic payloads for public-facing errors by truncating them at the first newline or stripping known stack trace keywords.
+
+## 2025-07-03 - [Prevent Log Spoofing / Terminal Overwrite in Future Panic Sanitize]
+**Vulnerability:** Truncating multiline panic payloads with just '\n' could allow terminal overwriting / log spoofing if malicious input relies on carriage returns '\r' or form feeds '\f'.
+**Learning:** Terminal control characters can maliciously alter log output or hide parts of the stack trace being reported publicly.
+**Prevention:** Always truncate at all vertical whitespace including \n, \r, \f, and \v to properly sanitize error logs.
