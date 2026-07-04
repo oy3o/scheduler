@@ -83,6 +83,15 @@ func TestFuture_PanicIsolation(t *testing.T) {
 	if strings.Contains(getErr.Error(), "goroutine") || strings.Contains(getErr.Error(), "debug.Stack") {
 		t.Errorf("Expected sanitized error without stack trace, got: %v", getErr)
 	}
+
+	// Verify that spoofed payloads are truncated
+	fSpoof, _ := SubmitFunc(g, 10, func(c Context) (int, error) {
+		panic("this is fine\r\033[2Kthis is spoofed")
+	})
+	_, getSpoofErr := fSpoof.Get(context.Background())
+	if strings.Contains(getSpoofErr.Error(), "spoofed") {
+		t.Errorf("Expected spoofed payload to be truncated, got: %v", getSpoofErr)
+	}
 }
 
 func TestFuture_Join(t *testing.T) {
